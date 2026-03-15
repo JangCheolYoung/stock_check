@@ -3,7 +3,7 @@ from functools import wraps
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 
-from stock_check.app.services.admin_service import AdminService, NotifierSettings
+from stock_check.app.services.admin_service import AdminService, MonitorSettings, NotifierSettings
 
 
 def create_app() -> Flask:
@@ -89,6 +89,42 @@ def create_app() -> Flask:
         except IndexError:
             flash("삭제 대상 인덱스가 올바르지 않습니다.", "error")
         return redirect(url_for("targets", site=site))
+
+    @app.route("/settings/schedule", methods=["GET", "POST"])
+    @login_required
+    def schedule_settings():
+        if request.method == "POST":
+            current = service.load_monitor_settings()
+            for site in ["cultizm", "hyundai"]:
+                current[site] = MonitorSettings(
+                    site=site,
+                    enabled=request.form.get(f"{site}_enabled") == "on",
+                    interval_minutes=int(request.form.get(f"{site}_interval_minutes", "10") or "10"),
+                    start_time=request.form.get(f"{site}_start_time", "09:00"),
+                    end_time=request.form.get(f"{site}_end_time", "23:00"),
+                    cron_expression=request.form.get(f"{site}_cron_expression", "").strip(),
+                    policy=request.form.get(f"{site}_policy", "v1"),
+                    repeat_interval_minutes=int(request.form.get(f"{site}_repeat_interval_minutes", "10") or "10"),
+                )
+
+            service.save_monitor_settings(current)
+
+            env_map = service._load_env_map()
+            env_map["EMAIL_ALERT_INTERVAL"] = request.form.get("email_alert_interval", "3600").strip()
+            env_map["TELEGRAM_ALERT_INTERVAL"] = request.form.get("telegram_alert_interval", "3600").strip()
+            service._write_env_map(env_map)
+
+            flash("스케줄/알림 빈도 설정이 저장되었습니다.", "success")
+            return redirect(url_for("schedule_settings"))
+
+        rows = service.load_monitor_settings()
+        env_map = service._load_env_map()
+        return render_template(
+            "schedule_settings.html",
+            rows=rows,
+            email_alert_interval=env_map.get("EMAIL_ALERT_INTERVAL", "3600"),
+            telegram_alert_interval=env_map.get("TELEGRAM_ALERT_INTERVAL", "3600"),
+        )
 
     @app.route("/settings/notifier", methods=["GET", "POST"])
     @login_required

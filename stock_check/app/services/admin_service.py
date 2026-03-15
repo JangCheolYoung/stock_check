@@ -16,6 +16,20 @@ class NotifierSettings:
     telegram_chat_id: str = ""
 
 
+
+
+@dataclass
+class MonitorSettings:
+    site: str
+    enabled: bool = True
+    interval_minutes: int = 10
+    start_time: str = "09:00"
+    end_time: str = "23:00"
+    cron_expression: str = ""
+    policy: str = "v1"
+    repeat_interval_minutes: int = 10
+
+
 class AdminService:
     def __init__(self, config: AppConfig | None = None):
         self.config = config or AppConfig.from_env()
@@ -96,6 +110,54 @@ class AdminService:
             }
         )
         self._write_env_map(env_map)
+
+    @property
+    def monitor_settings_file(self) -> Path:
+        return self.shared_dir / "monitor_settings.json"
+
+    def load_monitor_settings(self) -> dict[str, MonitorSettings]:
+        defaults = {
+            "cultizm": MonitorSettings(site="cultizm"),
+            "hyundai": MonitorSettings(site="hyundai"),
+        }
+        if not self.monitor_settings_file.exists():
+            return defaults
+
+        try:
+            import json
+
+            raw = json.loads(self.monitor_settings_file.read_text(encoding="utf-8"))
+            for site in ["cultizm", "hyundai"]:
+                row = raw.get(site, {})
+                defaults[site] = MonitorSettings(
+                    site=site,
+                    enabled=bool(row.get("enabled", True)),
+                    interval_minutes=int(row.get("interval_minutes", 10)),
+                    start_time=str(row.get("start_time", "09:00")),
+                    end_time=str(row.get("end_time", "23:00")),
+                    cron_expression=str(row.get("cron_expression", "")),
+                    policy=str(row.get("policy", "v1")),
+                    repeat_interval_minutes=int(row.get("repeat_interval_minutes", 10)),
+                )
+            return defaults
+        except Exception:
+            return defaults
+
+    def save_monitor_settings(self, settings_by_site: dict[str, MonitorSettings]) -> None:
+        import json
+
+        payload = {}
+        for site, settings in settings_by_site.items():
+            payload[site] = {
+                "enabled": settings.enabled,
+                "interval_minutes": int(settings.interval_minutes),
+                "start_time": settings.start_time,
+                "end_time": settings.end_time,
+                "cron_expression": settings.cron_expression,
+                "policy": settings.policy,
+                "repeat_interval_minutes": int(settings.repeat_interval_minutes),
+            }
+        self.monitor_settings_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def _split_target_line(self, line: str) -> tuple[str, str]:
         if ":" not in line:

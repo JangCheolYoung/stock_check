@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from stock_check.app.config import AppConfig
-from stock_check.app.services.admin_service import AdminService, NotifierSettings
+from stock_check.app.services.admin_service import AdminService, MonitorSettings, NotifierSettings
 
 
 class AdminServiceTests(unittest.TestCase):
@@ -54,6 +54,17 @@ class AdminServiceTests(unittest.TestCase):
         loaded = self.service.load_notifier_settings()
         self.assertEqual(loaded.smtp_server, "smtp.example.com")
         self.assertEqual(loaded.telegram_chat_id, "123")
+
+    def test_save_and_load_monitor_settings(self):
+        settings = {
+            "cultizm": MonitorSettings(site="cultizm", enabled=True, interval_minutes=15, start_time="08:00", end_time="22:00", cron_expression="*/15 8-22 * * *", policy="v2", repeat_interval_minutes=7),
+            "hyundai": MonitorSettings(site="hyundai", enabled=False, interval_minutes=30, start_time="10:00", end_time="20:00", cron_expression="", policy="v1", repeat_interval_minutes=10),
+        }
+        self.service.save_monitor_settings(settings)
+        loaded = self.service.load_monitor_settings()
+        self.assertEqual(loaded["cultizm"].interval_minutes, 15)
+        self.assertEqual(loaded["cultizm"].policy, "v2")
+        self.assertFalse(loaded["hyundai"].enabled)
 
 
 if __name__ == "__main__":

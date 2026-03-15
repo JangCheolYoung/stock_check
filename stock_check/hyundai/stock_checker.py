@@ -545,17 +545,12 @@ def main():
 
         log(f"검색 타겟: {len(targets)}개", "INFO")
 
-        # 워커 수 결정 (기본 1: 안정성)
+        # t4g.small 운영 정책: 단일 워커 고정 (코어 1개 사용)
         if not check_system_resources():
-            max_workers = 1
-            log("리소스 부족 -> 단일 워커", "INFO")
-        else:
-            max_workers = int(os.getenv("MAX_WORKERS_HYUNDAI", "1"))
-            max_workers = max(1, min(max_workers, len(targets)))
-            # 타겟이 많아도 기본은 보수적으로
-            if len(targets) >= 10:
-                max_workers = min(max_workers, 2)
-            log(f"워커 수: {max_workers}", "INFO")
+            log("리소스 체크 경고가 있지만 단일 워커 정책 유지", "WARNING")
+
+        max_workers = 1
+        log("워커 수 고정: 1", "INFO")
 
         # 전체 타임아웃(초) - 기본 12분
         overall_timeout = int(os.getenv("OVERALL_TIMEOUT_SEC", "720"))

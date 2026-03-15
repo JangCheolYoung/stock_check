@@ -20,9 +20,14 @@
   - SMTP 서버/포트/계정/비밀번호
   - EMAIL_RECIPIENTS
   - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID
+- 스케줄/알림 빈도 설정
+  - 사이트별 체크 간격(분), 운영 시간대, cron 표현식
+  - 사이트별 정책(v1/v2), v2 반복 간격
+  - 전역 알림 간격(EMAIL_ALERT_INTERVAL, TELEGRAM_ALERT_INTERVAL)
 
 ## 환경변수
 
+- 현재 운영 정책: Cultizm/Hyundai 재고 체크는 모두 단일 워커(1코어) 고정
 - `STOCK_CHECK_DATA_ROOT`: 사이트 데이터 루트 경로(기본: `<repo>/stock_check`)
 - `STOCK_CHECK_ENV_FILE`: dotenv 파일 경로(기본: `<repo>/stock_check/shared/.env`)
 - `STOCK_CHECK_ACCESS_KEY_FILE`: 웹 접속키 파일 경로(기본: `<repo>/stock_check/shared/access_key.txt`)

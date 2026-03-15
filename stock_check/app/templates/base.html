@@ -22,6 +22,7 @@
     <a href="{{ url_for('targets', site='cultizm') }}">Cultizm 타겟</a>
     <a href="{{ url_for('targets', site='hyundai') }}">Hyundai 타겟</a>
     <a href="{{ url_for('notifier_settings') }}">알림 설정</a>
+    <a href="{{ url_for('schedule_settings') }}">스케줄/빈도 설정</a>
     {% if session.get('authorized') %}
     <form method="post" action="{{ url_for('logout') }}" style="display:inline;">
       <button type="submit">로그아웃</button>

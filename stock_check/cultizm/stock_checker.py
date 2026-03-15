@@ -903,18 +903,12 @@ def main():
         
         log(f"검색 타겟: {len(targets)}개", "INFO")
         
-        # 리소스 체크 후 워커 수 결정
+        # t4g.small 운영 정책: 단일 워커 고정 (코어 1개 사용)
         if not check_system_resources():
-            max_workers = 1
-            log("단일 스레드 모드", "INFO")
-        else:
-            max_workers = int(os.getenv("MAX_WORKERS_CULTIZM", "3"))
-            max_workers = min(max_workers, len(targets))
-            
-            if len(targets) >= 10:
-                max_workers = min(2, len(targets))
-            
-            log(f"멀티스레드 모드: {max_workers} 워커", "INFO")
+            log("리소스 체크 경고가 있지만 단일 워커 정책 유지", "WARNING")
+
+        max_workers = 1
+        log("단일 워커 고정 모드: 1", "INFO")
         
         # 재고 확인 실행
         search_results = []
