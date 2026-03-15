@@ -1,0 +1,11 @@
+from enum import Enum
+
+
+class StockStatus(str, Enum):
+    IN_STOCK = "IN_STOCK"
+    OUT_OF_STOCK = "OUT_OF_STOCK"
+    PRODUCT_NOT_FOUND = "PRODUCT_NOT_FOUND"
+    SEARCH_FAILED = "SEARCH_FAILED"
+    PAGE_ERROR = "PAGE_ERROR"
+    BLOCKED = "BLOCKED"
+    UNKNOWN_ERROR = "UNKNOWN_ERROR"
