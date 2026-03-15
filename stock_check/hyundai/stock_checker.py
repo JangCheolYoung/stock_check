@@ -37,16 +37,25 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
 # 공통 모듈 경로 추가
-sys.path.append('/root/shared')
+from pathlib import Path
+
+CURRENT_DIR = Path(__file__).resolve().parent
+SHARED_DIR = CURRENT_DIR.parent / 'shared'
+if str(SHARED_DIR) not in sys.path:
+    sys.path.append(str(SHARED_DIR))
+
 from email_utils import send_stock_alert, send_system_alert
+from alert_policy import AlertPolicy
+from status import StockStatus
+from settings import get_site_dir
 
 # 통합 환경변수 로드
-load_dotenv('/root/shared/.env')
+load_dotenv(os.getenv('STOCK_CHECK_ENV_FILE', str(SHARED_DIR / '.env')))
 
 # =========================
 # 설정
 # =========================
-BASE_DIR = "/root/hyundai"
+BASE_DIR = str(get_site_dir("hyundai"))
 TARGET_FILE = os.path.join(BASE_DIR, "targets.txt")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 LOCK_FILE = os.path.join(BASE_DIR, "stock_checker.lock")
@@ -465,7 +474,7 @@ def check_single_stock(target):
 
         if not searched:
             log(f"{keyword} - 검색 실패", "ERROR")
-            return {"status": "search_failed", "product": keyword}
+            return {"status": StockStatus.SEARCH_FAILED.value, "product": keyword}
 
         # 2) 첫 상품 클릭 (재시도)
         clicked = False
@@ -477,13 +486,13 @@ def check_single_stock(target):
 
         if not clicked:
             log(f"{keyword} - 검색 결과 없음/클릭 실패", "INFO")
-            return {"status": "no_results", "product": keyword}
+            return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
 
         # 3) 옵션 수집
         available_options = get_available_options(driver)
         if not available_options:
             log(f"{keyword} - 옵션 없음", "INFO")
-            return {"status": "no_options", "product": keyword}
+            return {"status": StockStatus.OUT_OF_STOCK.value, "product": keyword}
 
         # 4) 사이즈 매칭
         matched_sizes = []
@@ -503,18 +512,18 @@ def check_single_stock(target):
                 f"재고: [{', '.join(available_options)}] | 매칭: [{', '.join(matched_sizes)}] ({elapsed:.1f}초)",
                 "SUCCESS"
             )
-            return {"status": "success", "product": keyword, "sizes": matched_sizes, "url": driver.current_url}
+            return {"status": StockStatus.IN_STOCK.value, "product": keyword, "sizes": matched_sizes, "url": driver.current_url}
 
         log(
             f"{keyword} - 재고 없음 | 타겟: [{', '.join(target_sizes)}] | 재고: [{', '.join(available_options)}] ({elapsed:.1f}초)",
             "INFO"
         )
-        return {"status": "no_target_sizes", "product": keyword, "available_options": available_options}
+        return {"status": StockStatus.OUT_OF_STOCK.value, "product": keyword, "available_options": available_options}
 
     except Exception as e:
         elapsed = time.time() - start_time
         log(f"{keyword} - 오류 발생: {e} ({elapsed:.1f}초)", "ERROR")
-        return {"status": "error", "product": keyword, "error": str(e)}
+        return {"status": StockStatus.UNKNOWN_ERROR.value, "product": keyword, "error": str(e)}
 
     finally:
         safe_quit_driver(driver)
@@ -574,10 +583,12 @@ def main():
                         search_results.append(result)
                 except concurrent.futures.TimeoutError:
                     log(f"타임아웃: {t['keyword']} (per_task_timeout={per_task_timeout}s)", "ERROR")
-                    search_results.append({"status": "timeout", "product": t["keyword"]})
+                    search_results.append({"status": StockStatus.PAGE_ERROR.value, "product": t["keyword"]})
                 except Exception as e:
                     log(f"Future 오류: {t['keyword']} | {e}", "ERROR")
-                    search_results.append({"status": "error", "product": t["keyword"], "error": str(e)})
+                    search_results.append({"status": StockStatus.UNKNOWN_ERROR.value, "product": t["keyword"], "error": str(e)})
+
+        alert_policy = AlertPolicy("hyundai")
 
         # 결과 분석
         available_items = []
@@ -585,14 +596,19 @@ def main():
 
         for r in search_results:
             status = r.get("status", "unknown")
-            if status == "success":
+            if status == StockStatus.IN_STOCK.value:
                 available_items.append({
                     "product": r["product"],
                     "sizes": r["sizes"],
                     "url": r["url"]
                 })
-            elif status in ["search_failed", "error", "timeout"]:
+            elif status in [StockStatus.SEARCH_FAILED.value, StockStatus.UNKNOWN_ERROR.value, StockStatus.PAGE_ERROR.value]:
                 system_errors.append(r)
+                alert_policy.record_ops_status(r.get("product", "unknown"), {
+                    "last_status": status,
+                    "last_message": r.get("error", "crawler error"),
+                    "is_error": True,
+                })
 
         elapsed_time = time.time() - start_time
 
@@ -621,8 +637,15 @@ def main():
                 sizes = item["sizes"]
                 url = item["url"]
 
+                dedup_prefix = alert_policy.make_dedup_key(product, "ALL", StockStatus.IN_STOCK.value)
+                policy_mode = os.getenv("ALERT_POLICY_MODE", "v1")
+                decision = alert_policy.should_send(dedup_prefix, policy_mode=policy_mode)
+                if not decision.should_send:
+                    log(f"알림 스킵: {product} ({decision.reason})", "DEBUG")
+                    continue
+
                 try:
-                    if send_stock_alert("hyundai", product, sizes, url):
+                    if send_stock_alert("hyundai", product, sizes, url, dedup_prefix=dedup_prefix):
                         email_sent += 1
                 except Exception as e:
                     log(f"이메일 알림 실패: {product} | {e}", "ERROR")
@@ -632,6 +655,14 @@ def main():
                         telegram_sent += 1
                 except Exception as e:
                     log(f"텔레그램 알림 실패: {product} | {e}", "ERROR")
+
+                alert_policy.mark_sent(dedup_prefix, StockStatus.IN_STOCK.value)
+                alert_policy.record_ops_status(product, {
+                    "last_status": StockStatus.IN_STOCK.value,
+                    "last_message": f"sizes={','.join(sizes)}",
+                    "product_url": url,
+                    "is_error": False,
+                })
 
             log(
                 f"재고 확인 완료 | 재고: {len(available_items)}개 | 이메일: {email_sent}개 | "

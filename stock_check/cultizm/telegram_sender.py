@@ -1,50 +1,43 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """텔레그램 알림 전송 스크립트 (백그라운드)"""
+import os
 import sys
 import time
-import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-load_dotenv('/root/shared/.env')
+DEFAULT_ENV_PATH = Path(__file__).resolve().parents[1] / "shared" / ".env"
+load_dotenv(os.getenv("STOCK_CHECK_ENV_FILE", str(DEFAULT_ENV_PATH)))
+
 
 def send_telegram_message(bot_token, chat_id, message, repeat_count, interval):
     try:
         import requests
-        
+
         for i in range(repeat_count):
             try:
                 requests.post(
                     f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                    json={
-                        "chat_id": chat_id,
-                        "text": message,
-                        "disable_web_page_preview": False
-                    },
-                    timeout=5
+                    json={"chat_id": chat_id, "text": message, "disable_web_page_preview": False},
+                    timeout=5,
                 )
-            except:
+            except Exception:
                 pass
-            
+
             if i < repeat_count - 1:
                 time.sleep(interval)
-    except:
+    except Exception:
         pass
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 6:
         sys.exit(1)
-    
-    bot_token = sys.argv[1]
-    chat_id = sys.argv[2]
-    product = sys.argv[3]
-    sizes = sys.argv[4]
-    url = sys.argv[5]
-    
-    # 환경변수에서 설정 읽기
+
+    bot_token, chat_id, product, sizes, url = sys.argv[1:6]
     repeat_count = int(os.getenv("TELEGRAM_REPEAT_COUNT", "5"))
     interval = float(os.getenv("TELEGRAM_INTERVAL", "3.0"))
-    
     message = f"🔔 재고 알림!\n\n상품: {product}\n사이즈: {sizes}\n\n{url}"
-    
     send_telegram_message(bot_token, chat_id, message, repeat_count, interval)
