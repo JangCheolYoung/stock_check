@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>{{ site }} 타겟 관리</h2>
+<div class="card">
+  <h3>타겟 추가</h3>
+  <form method="post" action="{{ url_for('add_target', site=site) }}">
+    <label>상품명/키워드</label>
+    <input type="text" name="keyword" required />
+    <label>사이즈 (쉼표 구분)</label>
+    <input type="text" name="sizes" placeholder="M, L" />
+    <button type="submit">추가</button>
+  </form>
+</div>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>상품</th><th>사이즈</th><th>수정</th><th>삭제</th></tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ loop.index0 }}</td>
+      <td>
+        <form method="post" action="{{ url_for('update_target', site=site, idx=loop.index0) }}">
+          <input type="text" name="keyword" value="{{ row.keyword }}" />
+      </td>
+      <td><input type="text" name="sizes" value="{{ row.sizes }}" /></td>
+      <td><button type="submit">수정</button></form></td>
+      <td>
+        <form method="post" action="{{ url_for('delete_target', site=site, idx=loop.index0) }}" onsubmit="return confirm('삭제하시겠습니까?');">
+          <button type="submit">삭제</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
