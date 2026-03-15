@@ -1,0 +1,87 @@
+[
+  {
+    "timestamp": "2026-03-15T15:17:20.966547",
+    "execution_time": "438.1s",
+    "total_checked": 16,
+    "available_count": 1,
+    "email_sent": 1,
+    "telegram_sent": 1,
+    "threads_used": 1,
+    "available_items": [
+      {
+        "product": "MNRROTW16020053410",
+        "sizes": [
+          "L"
+        ]
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-03-12T10:46:15.765873",
+    "execution_time": "372.9s",
+    "total_checked": 12,
+    "available_count": 1,
+    "email_sent": 1,
+    "telegram_sent": 1,
+    "threads_used": 1,
+    "available_items": [
+      {
+        "product": "빈센즈",
+        "sizes": [
+          "34"
+        ]
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-03-11T18:56:11.016694",
+    "execution_time": "369.7s",
+    "total_checked": 12,
+    "available_count": 1,
+    "email_sent": 0,
+    "telegram_sent": 0,
+    "threads_used": 1,
+    "available_items": [
+      {
+        "product": "빈센즈",
+        "sizes": [
+          "34"
+        ]
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-03-11T18:46:13.074854",
+    "execution_time": "371.0s",
+    "total_checked": 12,
+    "available_count": 1,
+    "email_sent": 0,
+    "telegram_sent": 0,
+    "threads_used": 1,
+    "available_items": [
+      {
+        "product": "빈센즈",
+        "sizes": [
+          "34"
+        ]
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-03-11T18:36:09.789533",
+    "execution_time": "368.3s",
+    "total_checked": 12,
+    "available_count": 1,
+    "email_sent": 0,
+    "telegram_sent": 0,
+    "threads_used": 1,
+    "available_items": [
+      {
+        "product": "빈센즈",
+        "sizes": [
+          "34"
+        ]
+      }
+    ]
+  }
+]

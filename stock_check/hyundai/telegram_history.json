@@ -1,0 +1,38 @@
+[
+  {
+    "site": "hyundai",
+    "product": "빈센즈",
+    "sizes": [
+      "34"
+    ],
+    "timestamp": 1773106572.5404894,
+    "datetime": "2026-03-10T10:36:13.543302"
+  },
+  {
+    "site": "hyundai",
+    "product": "빈센즈",
+    "sizes": [
+      "34"
+    ],
+    "timestamp": 1773192976.1177642,
+    "datetime": "2026-03-11T10:36:17.162054"
+  },
+  {
+    "site": "hyundai",
+    "product": "빈센즈",
+    "sizes": [
+      "34"
+    ],
+    "timestamp": 1773279974.787923,
+    "datetime": "2026-03-12T10:46:15.765291"
+  },
+  {
+    "site": "hyundai",
+    "product": "MNRROTW16020053410",
+    "sizes": [
+      "L"
+    ],
+    "timestamp": 1773555439.9362457,
+    "datetime": "2026-03-15T15:17:20.965928"
+  }
+]
