@@ -11,6 +11,7 @@ RUN_USER=${RUN_USER:-ubuntu}
 SERVICE_NAME=${SERVICE_NAME:-stock-check-admin}
 WEB_PORT=${WEB_PORT:-8080}
 WEB_SECRET=${WEB_SECRET:-change-me-secret}
+ACCESS_KEY=${ACCESS_KEY:-}
 
 if [[ -z "$REPO_URL" ]]; then
   echo "[오류] REPO_URL 환경변수를 지정하세요."
@@ -26,6 +27,7 @@ apt update
 apt install -y git curl wget unzip python3 python3-venv python3-pip ca-certificates gnupg
 
 # 기존 폴더 백업
+BACKUP_DIR=""
 if [[ -d "$APP_DIR" ]]; then
   BACKUP_DIR="${APP_DIR}_backup_$(date +%Y%m%d_%H%M%S)"
   echo "[정보] 기존 디렉터리 백업: $BACKUP_DIR"
@@ -53,9 +55,16 @@ unzip -o /tmp/chromedriver-linux64.zip -d /tmp/
 install -m 0755 /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
 
 mkdir -p "$APP_DIR/stock_check/shared"
-if [[ ! -f "$APP_DIR/stock_check/shared/access_key.txt" ]]; then
+
+# 접속키 우선순위: ACCESS_KEY env > 백업 폴더 key > 기본값
+if [[ -n "$ACCESS_KEY" ]]; then
+  echo "$ACCESS_KEY" > "$APP_DIR/stock_check/shared/access_key.txt"
+elif [[ -n "$BACKUP_DIR" && -f "$BACKUP_DIR/stock_check/shared/access_key.txt" ]]; then
+  cp "$BACKUP_DIR/stock_check/shared/access_key.txt" "$APP_DIR/stock_check/shared/access_key.txt"
+else
   echo "change-this-access-key" > "$APP_DIR/stock_check/shared/access_key.txt"
 fi
+
 if [[ ! -f "$APP_DIR/stock_check/shared/.env" ]]; then
   cat > "$APP_DIR/stock_check/shared/.env" <<EOF
 STOCK_CHECK_DATA_ROOT=$APP_DIR/stock_check
@@ -100,4 +109,6 @@ systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
 systemctl status "$SERVICE_NAME" --no-pager
 
+echo "[정보] 접속키 파일: $APP_DIR/stock_check/shared/access_key.txt"
+echo "[정보] 접속키 값(마스킹): $(head -c 2 "$APP_DIR/stock_check/shared/access_key.txt")****"
 echo "[완료] 재배포 완료: $APP_DIR"

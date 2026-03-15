@@ -74,7 +74,7 @@ python -m stock_check.app.web_admin
 
 ```bash
 cd /opt/stock_check
-sudo REPO_URL=<git_repository_url> BRANCH=main WEB_SECRET=<긴시크릿> bash scripts/redeploy_from_scratch.sh
+sudo REPO_URL=<git_repository_url> BRANCH=main WEB_SECRET=<긴시크릿> ACCESS_KEY=<접속키> bash scripts/redeploy_from_scratch.sh
 ```
 
 - 기존 `/opt/stock_check`는 타임스탬프 백업 폴더로 이동
@@ -82,6 +82,7 @@ sudo REPO_URL=<git_repository_url> BRANCH=main WEB_SECRET=<긴시크릿> bash sc
 - venv/의존성 설치
 - Chrome/Chromedriver 설치
 - systemd 서비스 생성/재시작
+- `ACCESS_KEY`를 지정하지 않으면 기존 백업 경로의 키를 복원하고, 없으면 기본 키(`change-this-access-key`)를 생성
 
 ### 2) 코드 업데이트 배포(git pull + 테스트 + 재시작)
 
