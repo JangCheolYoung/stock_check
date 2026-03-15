@@ -65,6 +65,40 @@ python -m stock_check.app.web_admin
 - 접속키 입력 후 로그인
 - target CRUD 및 알림 설정 수정
 
+
+## 자동 배포 스크립트
+
+서버 경로 꼬임(`/opt/stock_check/stock_check/...`)을 정리하고, `/opt` 에서 정상 clone 구조(`/opt/stock_check/...`)로 재구성하려면 아래 스크립트를 사용하세요.
+
+### 1) 완전 재배포(초기화)
+
+```bash
+cd /opt/stock_check
+sudo REPO_URL=<git_repository_url> BRANCH=main WEB_SECRET=<긴시크릿> bash scripts/redeploy_from_scratch.sh
+```
+
+- 기존 `/opt/stock_check`는 타임스탬프 백업 폴더로 이동
+- `/opt/stock_check` 재-clone
+- venv/의존성 설치
+- Chrome/Chromedriver 설치
+- systemd 서비스 생성/재시작
+
+### 2) 코드 업데이트 배포(git pull + 테스트 + 재시작)
+
+```bash
+cd /opt/stock_check
+sudo BRANCH=main bash scripts/update_deploy.sh
+```
+
+### 3) 수동 실행(점검용)
+
+```bash
+cd /opt/stock_check
+bash scripts/run_admin_web.sh
+```
+
+위 스크립트는 `PYTHONPATH=/opt/stock_check`를 사용하므로 모듈 경로 오류(`No module named stock_check.app`)를 피할 수 있습니다.
+
 ## 서버 배포(systemd) 예시
 
 ### 1) 코드 배치
