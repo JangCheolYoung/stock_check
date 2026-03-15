@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>접속 키 인증</h2>
+<div class="card">
+  <form method="post">
+    <label>서버 접속 키</label>
+    <input type="password" name="access_key" required />
+    <button type="submit">검증</button>
+  </form>
+</div>
+{% endblock %}
