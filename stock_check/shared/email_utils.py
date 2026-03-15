@@ -1,31 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""공통 이메일 발송 모듈"""
+"""
+stock_check/shared/email_utils.py
+공통 이메일 발송 모듈
+"""
 
 import json
 import os
-import smtplib
+from pathlib import Path
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 
 from dotenv import load_dotenv
 
-from settings import get_site_dir
+CURRENT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = CURRENT_DIR.parent.parent
+DEFAULT_DATA_ROOT = PROJECT_ROOT / "stock_check"
 
+load_dotenv(CURRENT_DIR / ".env")
 load_dotenv()
 
 
-def _history_file(site_name):
-    return get_site_dir(site_name) / "email_history.json"
-
-
-def _system_alert_file(site_name):
-    return get_site_dir(site_name) / "system_alerts.json"
-
+def _site_dir(site_name):
+    data_root = Path(os.getenv("STOCK_CHECK_DATA_ROOT", str(DEFAULT_DATA_ROOT)))
+    return data_root / site_name
 
 def load_email_history(site_name):
     try:
-        history_file = _history_file(site_name)
+        history_file = _site_dir(site_name) / "email_history.json"
         if history_file.exists():
             with open(history_file, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -36,7 +38,7 @@ def load_email_history(site_name):
 
 def save_email_history(site_name, history):
     try:
-        history_file = _history_file(site_name)
+        history_file = _site_dir(site_name) / "email_history.json"
         history_file.parent.mkdir(parents=True, exist_ok=True)
         with open(history_file, "w", encoding="utf-8") as f:
             json.dump(history, f, indent=2, ensure_ascii=False)
@@ -116,7 +118,7 @@ def send_stock_alert(site_name, product, sizes, url, dedup_prefix=None):
 
 def load_system_alerts(site_name):
     try:
-        alert_file = _system_alert_file(site_name)
+        alert_file = _site_dir(site_name) / "system_alerts.json"
         if alert_file.exists():
             with open(alert_file, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -127,7 +129,7 @@ def load_system_alerts(site_name):
 
 def save_system_alerts(site_name, alerts):
     try:
-        alert_file = _system_alert_file(site_name)
+        alert_file = _site_dir(site_name) / "system_alerts.json"
         alert_file.parent.mkdir(parents=True, exist_ok=True)
         with open(alert_file, "w", encoding="utf-8") as f:
             json.dump(alerts, f, indent=2, ensure_ascii=False)

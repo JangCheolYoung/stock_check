@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-/root/hyundai/stock_checker.py
+stock_check/hyundai/stock_checker.py
 더현대닷컴 재고 확인 스크립트 (안정성 강화 버전)
 
 핵심 개선
@@ -19,6 +19,7 @@ import json
 import signal
 import threading
 import traceback
+from pathlib import Path
 from datetime import datetime
 import concurrent.futures
 import warnings
@@ -37,28 +38,22 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
 # 공통 모듈 경로 추가
-from pathlib import Path
-
-CURRENT_DIR = Path(__file__).resolve().parent
-SHARED_DIR = CURRENT_DIR.parent / 'shared'
-if str(SHARED_DIR) not in sys.path:
-    sys.path.append(str(SHARED_DIR))
-
-from email_utils import send_stock_alert, send_system_alert
-from alert_policy import AlertPolicy
-from status import StockStatus
-from settings import get_site_dir
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.append(str(PROJECT_ROOT))
+from stock_check.shared.email_utils import send_stock_alert, send_system_alert
 
 # 통합 환경변수 로드
-load_dotenv(os.getenv('STOCK_CHECK_ENV_FILE', str(SHARED_DIR / '.env')))
+load_dotenv(PROJECT_ROOT / 'stock_check' / 'shared' / '.env')
+load_dotenv()
 
 # =========================
 # 설정
 # =========================
-BASE_DIR = str(get_site_dir("hyundai"))
-TARGET_FILE = os.path.join(BASE_DIR, "targets.txt")
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-LOCK_FILE = os.path.join(BASE_DIR, "stock_checker.lock")
+DATA_ROOT = Path(os.getenv('STOCK_CHECK_DATA_ROOT', str(PROJECT_ROOT / 'stock_check')))
+BASE_DIR = DATA_ROOT / 'hyundai'
+TARGET_FILE = BASE_DIR / 'targets.txt'
+LOG_DIR = BASE_DIR / 'logs'
+LOCK_FILE = BASE_DIR / 'stock_checker.lock'
 
 os.makedirs(LOG_DIR, exist_ok=True)
 

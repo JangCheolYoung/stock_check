@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-/root/cultizm/stock_checker.py
+stock_check/cultizm/stock_checker.py
 컬티즘 재고 확인 스크립트 (최소 로그 버전)
 """
 
@@ -10,6 +10,7 @@ import os
 import time
 import threading
 import json
+from pathlib import Path
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -23,26 +24,20 @@ from dotenv import load_dotenv
 import concurrent.futures
 
 # 공통 모듈 경로 추가
-from pathlib import Path
-
-CURRENT_DIR = Path(__file__).resolve().parent
-SHARED_DIR = CURRENT_DIR.parent / 'shared'
-if str(SHARED_DIR) not in sys.path:
-    sys.path.append(str(SHARED_DIR))
-
-from email_utils import send_stock_alert, send_system_alert
-from alert_policy import AlertPolicy
-from status import StockStatus
-from settings import get_site_dir
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.append(str(PROJECT_ROOT))
+from stock_check.shared.email_utils import send_stock_alert, send_system_alert
 
 # 통합 환경변수 로드
-load_dotenv(os.getenv('STOCK_CHECK_ENV_FILE', str(SHARED_DIR / '.env')))
+load_dotenv(PROJECT_ROOT / 'stock_check' / 'shared' / '.env')
+load_dotenv()
 
 # 설정
-BASE_DIR = str(get_site_dir("cultizm"))
-TARGET_FILE = os.path.join(BASE_DIR, "targets.txt")
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-LOCK_FILE = os.path.join(BASE_DIR, "stock_checker.lock")
+DATA_ROOT = Path(os.getenv('STOCK_CHECK_DATA_ROOT', str(PROJECT_ROOT / 'stock_check')))
+BASE_DIR = DATA_ROOT / 'cultizm'
+TARGET_FILE = BASE_DIR / 'targets.txt'
+LOG_DIR = BASE_DIR / 'logs'
+LOCK_FILE = BASE_DIR / 'stock_checker.lock'
 
 # 로그 디렉토리 생성
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -738,7 +733,10 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
-load_dotenv(os.getenv('STOCK_CHECK_ENV_FILE', str(Path(__file__).resolve().parents[1] / 'shared' / '.env')))
+env_file = os.getenv('STOCK_CHECK_ENV_FILE')
+if env_file:
+    load_dotenv(env_file)
+load_dotenv()
 
 def send_telegram_message(bot_token, chat_id, message, repeat_count, interval):
     try:
