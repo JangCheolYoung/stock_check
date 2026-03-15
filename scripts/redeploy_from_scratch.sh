@@ -65,6 +65,11 @@ else
   echo "change-this-access-key" > "$APP_DIR/stock_check/shared/access_key.txt"
 fi
 
+# .env 우선순위: 백업 복원 > 신규 기본 생성
+if [[ -n "$BACKUP_DIR" && -f "$BACKUP_DIR/stock_check/shared/.env" ]]; then
+  cp "$BACKUP_DIR/stock_check/shared/.env" "$APP_DIR/stock_check/shared/.env"
+fi
+
 if [[ ! -f "$APP_DIR/stock_check/shared/.env" ]]; then
   cat > "$APP_DIR/stock_check/shared/.env" <<EOF
 STOCK_CHECK_DATA_ROOT=$APP_DIR/stock_check
@@ -77,6 +82,26 @@ EMAIL_ALERT_INTERVAL=3600
 TELEGRAM_ALERT_INTERVAL=3600
 EOF
 fi
+
+# 필수 경로 키는 현재 배포 경로 기준으로 덮어써서 경로 꼬임 방지
+python3 - <<'PY_INNER'
+from pathlib import Path
+env_path = Path("$APP_DIR/stock_check/shared/.env")
+rows = {}
+for line in env_path.read_text(encoding="utf-8").splitlines():
+    s = line.strip()
+    if not s or s.startswith('#') or '=' not in s:
+        continue
+    k,v = s.split('=',1)
+    rows[k.strip()] = v.strip()
+rows['STOCK_CHECK_DATA_ROOT'] = '$APP_DIR/stock_check'
+rows['STOCK_CHECK_ENV_FILE'] = '$APP_DIR/stock_check/shared/.env'
+rows['STOCK_CHECK_ACCESS_KEY_FILE'] = '$APP_DIR/stock_check/shared/access_key.txt'
+rows['STOCK_CHECK_WEB_PORT'] = rows.get('STOCK_CHECK_WEB_PORT', '$WEB_PORT')
+rows['CHROME_DRIVER_PATH'] = rows.get('CHROME_DRIVER_PATH', '/usr/local/bin/chromedriver')
+content = '\n'.join(f"{k}={rows[k]}" for k in sorted(rows.keys())) + '\n'
+env_path.write_text(content, encoding='utf-8')
+PY_INNER
 
 chmod 600 "$APP_DIR/stock_check/shared/access_key.txt" "$APP_DIR/stock_check/shared/.env"
 chown -R "$RUN_USER":"$RUN_USER" "$APP_DIR/stock_check/shared"
@@ -114,4 +139,6 @@ bash "$APP_DIR/scripts/install_scheduler_timer.sh"
 
 echo "[정보] 접속키 파일: $APP_DIR/stock_check/shared/access_key.txt"
 echo "[정보] 접속키 값(마스킹): $(head -c 2 "$APP_DIR/stock_check/shared/access_key.txt")****"
+echo "[정보] .env 복원 여부 확인: $APP_DIR/stock_check/shared/.env"
+echo "[정보] SMTP_USER 존재: $(grep -c "^NAVER_SMTP_USER=" $APP_DIR/stock_check/shared/.env || true)"
 echo "[완료] 재배포 완료: $APP_DIR"

@@ -82,6 +82,7 @@ sudo REPO_URL=<git_repository_url> BRANCH=main WEB_SECRET=<긴시크릿> ACCESS_
 - venv/의존성 설치
 - Chrome/Chromedriver 설치
 - systemd 서비스 생성/재시작
+- 기존 백업 경로의 `.env`(알림 설정: SMTP/수신메일/텔레그램 토큰·아이디) 자동 복원
 - `ACCESS_KEY`를 지정하지 않으면 기존 백업 경로의 키를 복원하고, 없으면 기본 키(`change-this-access-key`)를 생성
 
 ### 2) 코드 업데이트 배포(git pull + 테스트 + 재시작)
