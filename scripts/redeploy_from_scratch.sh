@@ -109,6 +109,9 @@ systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
 systemctl status "$SERVICE_NAME" --no-pager
 
+# 스케줄러 타이머 설치
+bash "$APP_DIR/scripts/install_scheduler_timer.sh"
+
 echo "[정보] 접속키 파일: $APP_DIR/stock_check/shared/access_key.txt"
 echo "[정보] 접속키 값(마스킹): $(head -c 2 "$APP_DIR/stock_check/shared/access_key.txt")****"
 echo "[완료] 재배포 완료: $APP_DIR"

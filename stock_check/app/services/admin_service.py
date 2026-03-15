@@ -16,8 +16,6 @@ class NotifierSettings:
     telegram_chat_id: str = ""
 
 
-
-
 @dataclass
 class MonitorSettings:
     site: str
@@ -47,13 +45,67 @@ class AdminService:
             return Path(key_file)
         return self.shared_dir / "access_key.txt"
 
+    def access_key_candidates(self) -> list[Path]:
+        """배포 경로 꼬임 상황까지 고려한 접속키 파일 후보 목록."""
+        candidates: list[Path] = []
+        seen: set[str] = set()
+
+        explicit = os.getenv("STOCK_CHECK_ACCESS_KEY_FILE")
+        if explicit:
+            path = Path(explicit)
+            candidates.append(path)
+            seen.add(str(path.resolve()) if path.exists() else str(path))
+
+        defaults = [
+            self.shared_dir / "access_key.txt",
+            self.config.project_root / "stock_check" / "shared" / "access_key.txt",
+            self.config.project_root / "shared" / "access_key.txt",
+            Path.cwd() / "stock_check" / "shared" / "access_key.txt",
+            Path.cwd() / "shared" / "access_key.txt",
+        ]
+
+        for path in defaults:
+            key = str(path.resolve()) if path.exists() else str(path)
+            if key not in seen:
+                candidates.append(path)
+                seen.add(key)
+
+        return candidates
+
+    def _read_key(self, path: Path) -> str:
+        # UTF-8 BOM 포함 파일까지 대응
+        return path.read_text(encoding="utf-8-sig").strip()
+
     def verify_access_key(self, candidate: str) -> bool:
         if not candidate:
             return False
-        if not self.access_key_file.exists():
-            return False
-        expected = self.access_key_file.read_text(encoding="utf-8").strip()
-        return candidate.strip() == expected and expected != ""
+
+        probe = candidate.strip()
+        for path in self.access_key_candidates():
+            if not path.exists():
+                continue
+            try:
+                expected = self._read_key(path)
+            except Exception:
+                continue
+            if expected and probe == expected:
+                return True
+
+        return False
+
+    def access_key_debug_info(self) -> dict:
+        rows = []
+        for path in self.access_key_candidates():
+            exists = path.exists()
+            val = ""
+            if exists:
+                try:
+                    raw = self._read_key(path)
+                    val = f"{raw[:2]}****" if raw else "(빈 값)"
+                except Exception as exc:
+                    val = f"읽기실패:{exc}"
+            rows.append({"path": str(path), "exists": exists, "masked": val})
+        return {"candidates": rows}
 
     def load_targets(self, site: str) -> list[dict[str, str]]:
         target_file = self.config.site_dir(site) / "targets.txt"

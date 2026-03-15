@@ -100,6 +100,21 @@ bash scripts/run_admin_web.sh
 
 위 스크립트는 `PYTHONPATH=/opt/stock_check`를 사용하므로 모듈 경로 오류(`No module named stock_check.app`)를 피할 수 있습니다.
 
+
+### 접속키 검증 실패 시 점검
+
+- `.env`의 `STOCK_CHECK_ACCESS_KEY_FILE` 경로와 실제 파일 경로가 일치하는지 확인
+- 파일 값에 BOM/개행이 섞여 있어도 현재 로직은 자동 정리 처리
+- 디버그 모드:
+
+```bash
+export STOCK_CHECK_DEBUG_AUTH=true
+python -m stock_check.app.web_admin
+# 또는 /debug/auth 호출
+```
+
+- 디버그 정보로 실제 탐색한 접속키 후보 경로와 존재 여부를 확인 가능
+
 ## 서버 배포(systemd) 예시
 
 ### 1) 코드 배치
@@ -152,3 +167,19 @@ sudo systemctl status stock-check-admin
 ## 마이그레이션
 
 자세한 변경 사항과 이관 포인트는 `V1_V2_MIGRATION.md` 참고.
+
+
+## 스케줄 설정 실제 동작 방식
+
+관리 페이지의 `스케줄/알림 빈도 설정`은 `monitor_settings.json`에 저장되고,
+`python -m stock_check.run_scheduler --once` 실행 시 아래 순서로 실제 반영됩니다.
+
+1. `enabled=false`면 실행하지 않음
+2. 현재 시각이 `start_time ~ end_time` 범위 밖이면 실행하지 않음
+3. `cron_expression` 값이 있으면 cron 매칭 시에만 실행
+4. cron이 비어 있으면 `interval_minutes` 기준으로 마지막 실행 시각 대비 실행 여부 판단
+5. 실행 조건이 맞으면 사이트별 `stock_checker.py`를 실행하고 성공 시 `scheduler_state.json`에 `last_run_at` 저장
+
+참고:
+- `EMAIL_ALERT_INTERVAL`, `TELEGRAM_ALERT_INTERVAL`은 알림 중복 방지 간격(초)으로 계속 사용됩니다.
+- 스케줄러 타이머 설치: `sudo bash scripts/install_scheduler_timer.sh`

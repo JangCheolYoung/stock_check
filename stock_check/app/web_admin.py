@@ -35,7 +35,17 @@ def create_app() -> Flask:
                 flash("인증에 성공했습니다.", "success")
                 return redirect(url_for("dashboard"))
             flash("접속 키가 올바르지 않습니다.", "error")
+            if os.getenv("STOCK_CHECK_DEBUG_AUTH", "false").lower() == "true":
+                info = service.access_key_debug_info()
+                first = info["candidates"][0] if info["candidates"] else {}
+                flash(f"디버그: key_file={first.get('path')} exists={first.get('exists')} value={first.get('masked')}", "error")
         return render_template("login.html")
+
+    @app.get("/debug/auth")
+    def auth_debug():
+        if os.getenv("STOCK_CHECK_DEBUG_AUTH", "false").lower() != "true":
+            return {"enabled": False}, 404
+        return service.access_key_debug_info()
 
     @app.post("/logout")
     def logout():

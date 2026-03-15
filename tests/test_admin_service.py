@@ -25,6 +25,18 @@ class AdminServiceTests(unittest.TestCase):
         self.assertTrue(self.service.verify_access_key("secret-key"))
         self.assertFalse(self.service.verify_access_key("wrong"))
 
+
+    def test_access_key_with_utf8_bom(self):
+        self.service.access_key_file.parent.mkdir(parents=True, exist_ok=True)
+        self.service.access_key_file.write_text("\ufeffbom-key\n", encoding="utf-8")
+        self.assertTrue(self.service.verify_access_key("bom-key"))
+
+    def test_access_key_candidate_fallback(self):
+        fallback = self.service.config.project_root / "shared" / "access_key.txt"
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        fallback.write_text("fallback-key\n", encoding="utf-8")
+        self.assertTrue(self.service.verify_access_key("fallback-key"))
+
     def test_target_crud(self):
         self.service.add_target("cultizm", "RRL Jacket", "M,L")
         self.service.add_target("cultizm", "RRL Belt", "W32")

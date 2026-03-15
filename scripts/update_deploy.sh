@@ -26,4 +26,9 @@ sudo -u "$RUN_USER" bash -lc "cd '$APP_DIR' && source .venv/bin/activate && pyth
 systemctl restart "$SERVICE_NAME"
 systemctl status "$SERVICE_NAME" --no-pager
 
+if systemctl list-unit-files | grep -q "stock-check-scheduler.timer"; then
+  systemctl restart stock-check-scheduler.timer
+  systemctl status stock-check-scheduler.timer --no-pager
+fi
+
 echo "[완료] 업데이트 배포 완료"
