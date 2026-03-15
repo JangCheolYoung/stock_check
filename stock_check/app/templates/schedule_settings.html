@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>스케줄/알림 빈도 설정</h2>
+<form method="post">
+  {% for site in ['cultizm', 'hyundai'] %}
+  {% set row = rows[site] %}
+  <div class="card">
+    <h3>{{ site|upper }}</h3>
+    <label><input type="checkbox" name="{{ site }}_enabled" {% if row.enabled %}checked{% endif %}/> 모니터링 활성화</label>
+    <label>체크 간격(분)</label>
+    <input type="text" name="{{ site }}_interval_minutes" value="{{ row.interval_minutes }}" />
+
+    <label>운영 시작 시각(HH:MM)</label>
+    <input type="text" name="{{ site }}_start_time" value="{{ row.start_time }}" />
+
+    <label>운영 종료 시각(HH:MM)</label>
+    <input type="text" name="{{ site }}_end_time" value="{{ row.end_time }}" />
+
+    <label>Cron 표현식(선택, 비어있으면 interval 사용)</label>
+    <input type="text" name="{{ site }}_cron_expression" value="{{ row.cron_expression }}" placeholder="*/10 9-23 * * *" />
+
+    <label>알림 정책</label>
+    <select name="{{ site }}_policy">
+      <option value="v1" {% if row.policy == 'v1' %}selected{% endif %}>v1 (24시간 1회)</option>
+      <option value="v2" {% if row.policy == 'v2' %}selected{% endif %}>v2 (ACK 전 반복)</option>
+    </select>
+
+    <label>v2 반복 간격(분)</label>
+    <input type="text" name="{{ site }}_repeat_interval_minutes" value="{{ row.repeat_interval_minutes }}" />
+  </div>
+  {% endfor %}
+
+  <div class="card">
+    <h3>전역 알림 빈도</h3>
+    <label>EMAIL_ALERT_INTERVAL (초)</label>
+    <input type="text" name="email_alert_interval" value="{{ email_alert_interval }}" />
+
+    <label>TELEGRAM_ALERT_INTERVAL (초)</label>
+    <input type="text" name="telegram_alert_interval" value="{{ telegram_alert_interval }}" />
+  </div>
+
+  <button type="submit">저장</button>
+</form>
+{% endblock %}
