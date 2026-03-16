@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>관리 대시보드</h2>
+<div class="card">
+  <p>Cultizm 타겟 수: {{ target_counts['cultizm'] }}</p>
+  <p>Hyundai 타겟 수: {{ target_counts['hyundai'] }}</p>
+</div>
+
+<div class="card">
+  <h3>최근 스케줄 실행 로그 (최신 20건)</h3>
+  {% for row in scheduler_logs %}
+  <p style="margin:4px 0;">{{ row.logged_at or '-' }} | {{ row.site or '-' }} | {{ row.reason or '-' }} | {{ 'ran' if row.ran else 'skipped' }} | {{ row.run_result or '-' }}</p>
+  {% else %}
+  <p>아직 기록된 로그가 없습니다.</p>
+  {% endfor %}
+  <p><a href="{{ url_for('scheduler_logs') }}">전체 로그 보기</a></p>
+</div>
+{% endblock %}
