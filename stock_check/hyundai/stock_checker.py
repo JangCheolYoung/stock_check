@@ -19,6 +19,7 @@ import json
 import signal
 import threading
 import traceback
+import builtins
 from pathlib import Path
 from datetime import datetime
 import concurrent.futures
@@ -54,6 +55,9 @@ except Exception:
         PAGE_ERROR = "PAGE_ERROR"
         BLOCKED = "BLOCKED"
         UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
+# 배포본 혼재(레거시 코드/동적 평가)로 전역 스코프에서 StockStatus를 못 찾는 경우까지 방지
+builtins.StockStatus = StockStatus
 
 # 통합 환경변수 로드
 load_dotenv(PROJECT_ROOT / 'stock_check' / 'shared' / '.env')
@@ -531,7 +535,9 @@ def check_single_stock(target):
     except Exception as e:
         elapsed = time.time() - start_time
         log(f"{keyword} - 오류 발생: {e} ({elapsed:.1f}초)", "ERROR")
-        return {"status": StockStatus.UNKNOWN_ERROR.value, "product": keyword, "error": str(e)}
+        if "StockStatus" in str(e):
+            log(traceback.format_exc(), "ERROR")
+        return {"status": "error", "product": keyword, "error": str(e)}
 
     finally:
         safe_quit_driver(driver)
