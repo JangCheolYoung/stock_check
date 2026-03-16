@@ -59,7 +59,14 @@ def create_app() -> Flask:
     def dashboard():
         sites = ["cultizm", "hyundai"]
         counts = {site: len(service.load_targets(site)) for site in sites}
-        return render_template("dashboard.html", target_counts=counts)
+        scheduler_logs = service.load_scheduler_logs(limit=20)
+        return render_template("dashboard.html", target_counts=counts, scheduler_logs=scheduler_logs)
+
+    @app.get("/logs/scheduler")
+    @login_required
+    def scheduler_logs():
+        rows = service.load_scheduler_logs(limit=500)
+        return render_template("scheduler_logs.html", rows=rows)
 
     @app.get("/targets/<site>")
     @login_required
@@ -131,6 +138,7 @@ def create_app() -> Flask:
         rows = service.load_monitor_settings()
         env_map = service._load_env_map()
         now = datetime.now().astimezone()
+        offset_minutes = int((now.utcoffset().total_seconds() if now.utcoffset() else 0) / 60)
         return render_template(
             "schedule_settings.html",
             rows=rows,
@@ -138,6 +146,7 @@ def create_app() -> Flask:
             telegram_alert_interval=env_map.get("TELEGRAM_ALERT_INTERVAL", "3600"),
             server_now_iso=now.isoformat(),
             server_timezone=now.tzname() or "LOCAL",
+            server_utc_offset_minutes=offset_minutes,
         )
 
     @app.route("/settings/notifier", methods=["GET", "POST"])

@@ -78,6 +78,15 @@ class AdminServiceTests(unittest.TestCase):
         self.assertEqual(loaded["cultizm"].policy, "v2")
         self.assertFalse(loaded["hyundai"].enabled)
 
+    def test_scheduler_logs_append_and_load(self):
+        self.service.append_scheduler_log({"site": "cultizm", "reason": "first_run", "ran": True, "run_result": "ok"})
+        self.service.append_scheduler_log({"site": "hyundai", "reason": "out_of_window", "ran": False, "run_result": "skipped"})
+
+        logs = self.service.load_scheduler_logs(limit=2)
+        self.assertEqual(len(logs), 2)
+        self.assertEqual(logs[0]["site"], "hyundai")
+        self.assertEqual(logs[1]["site"], "cultizm")
+
 
 if __name__ == "__main__":
     unittest.main()

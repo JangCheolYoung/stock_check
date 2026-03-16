@@ -1,5 +1,7 @@
 import os
+import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from stock_check.app.config import AppConfig
@@ -167,6 +169,37 @@ class AdminService:
     def monitor_settings_file(self) -> Path:
         return self.shared_dir / "monitor_settings.json"
 
+    @property
+    def scheduler_log_file(self) -> Path:
+        return self.shared_dir / "scheduler_runs.jsonl"
+
+    def append_scheduler_log(self, payload: dict) -> None:
+        self.shared_dir.mkdir(parents=True, exist_ok=True)
+        row = {
+            "logged_at": datetime.now().astimezone().isoformat(),
+            **payload,
+        }
+        with self.scheduler_log_file.open("a", encoding="utf-8") as fp:
+            fp.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    def load_scheduler_logs(self, limit: int = 100) -> list[dict]:
+        if not self.scheduler_log_file.exists():
+            return []
+
+        rows: list[dict] = []
+        for line in self.scheduler_log_file.read_text(encoding="utf-8").splitlines():
+            row = line.strip()
+            if not row:
+                continue
+            try:
+                rows.append(json.loads(row))
+            except json.JSONDecodeError:
+                continue
+
+        if limit <= 0:
+            return rows[::-1]
+        return rows[::-1][:limit]
+
     def load_monitor_settings(self) -> dict[str, MonitorSettings]:
         defaults = {
             "cultizm": MonitorSettings(site="cultizm"),
@@ -176,7 +209,6 @@ class AdminService:
             return defaults
 
         try:
-            import json
 
             raw = json.loads(self.monitor_settings_file.read_text(encoding="utf-8"))
             for site in ["cultizm", "hyundai"]:
@@ -196,8 +228,6 @@ class AdminService:
             return defaults
 
     def save_monitor_settings(self, settings_by_site: dict[str, MonitorSettings]) -> None:
-        import json
-
         payload = {}
         for site, settings in settings_by_site.items():
             payload[site] = {

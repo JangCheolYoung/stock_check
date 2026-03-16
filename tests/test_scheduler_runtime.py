@@ -48,6 +48,22 @@ class SchedulerRuntimeTests(unittest.TestCase):
         should2, _ = self.runtime.should_run("cultizm", settings, datetime(2026, 3, 15, 10, 16), {})
         self.assertFalse(should2)
 
+    def test_run_once_writes_scheduler_logs(self):
+        settings = {
+            "cultizm": MonitorSettings(site="cultizm", enabled=False),
+            "hyundai": MonitorSettings(site="hyundai", enabled=False),
+        }
+        self.service.save_monitor_settings(settings)
+
+        result = self.runtime.run_once()
+        self.assertIn("sites", result)
+
+        logs = self.service.load_scheduler_logs(limit=10)
+        self.assertEqual(len(logs), 2)
+        self.assertEqual(logs[0]["site"], "hyundai")
+        self.assertEqual(logs[1]["site"], "cultizm")
+        self.assertEqual(logs[0]["reason"], "disabled")
+
 
 if __name__ == "__main__":
     unittest.main()

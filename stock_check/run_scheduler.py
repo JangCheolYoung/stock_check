@@ -121,6 +121,17 @@ class SchedulerRuntime:
                 info["run_result"] = msg
                 if ok:
                     state.setdefault(site, {})["last_run_at"] = now.isoformat()
+
+            self.service.append_scheduler_log(
+                {
+                    "executed_at": now.isoformat(),
+                    "site": site,
+                    "reason": reason,
+                    "ran": info["ran"],
+                    "run_result": info["run_result"],
+                    "settings": info["settings"],
+                }
+            )
             result["sites"][site] = info
 
         self.save_state(state)
