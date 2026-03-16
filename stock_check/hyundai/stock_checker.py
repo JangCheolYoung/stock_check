@@ -42,6 +42,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(PROJECT_ROOT))
 from stock_check.shared.email_utils import send_stock_alert, send_system_alert
 
+# 하위호환: 일부 배포본에서 StockStatus 참조 코드가 남아 있어 NameError가 발생하는 경우 방지
+try:
+    from stock_check.app.models import StockStatus  # noqa: F401
+except Exception:
+    class StockStatus:  # type: ignore
+        IN_STOCK = "IN_STOCK"
+        OUT_OF_STOCK = "OUT_OF_STOCK"
+        PRODUCT_NOT_FOUND = "PRODUCT_NOT_FOUND"
+        SEARCH_FAILED = "SEARCH_FAILED"
+        PAGE_ERROR = "PAGE_ERROR"
+        BLOCKED = "BLOCKED"
+        UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
 # 통합 환경변수 로드
 load_dotenv(PROJECT_ROOT / 'stock_check' / 'shared' / '.env')
 load_dotenv()
@@ -717,4 +730,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
