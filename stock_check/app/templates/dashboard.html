@@ -4,12 +4,13 @@
 <div class="card">
   <p>Cultizm 타겟 수: {{ target_counts['cultizm'] }}</p>
   <p>Hyundai 타겟 수: {{ target_counts['hyundai'] }}</p>
+  <p style="font-size:12px;color:#666;">스케줄러는 systemd timer가 매분 1회 실행되며, 각 사이트별 조건(활성화/시간창/cron/interval)을 내부 로직에서 판단합니다.</p>
 </div>
 
 <div class="card">
   <h3>최근 스케줄 실행 로그 (최신 20건)</h3>
   {% for row in scheduler_logs %}
-  <p style="margin:4px 0;">{{ row.logged_at or '-' }} | {{ row.site or '-' }} | {{ row.reason or '-' }} | {{ 'ran' if row.ran else 'skipped' }} | {{ row.run_result or '-' }}</p>
+  <p style="margin:4px 0;">{{ row.logged_at or '-' }} | {{ row.site or '-' }} | {{ row.reason or '-' }} | {{ row.evaluation_timezone or '-' }} {{ row.window_check_detail or '' }} | {{ 'ran' if row.ran else 'skipped' }} | {{ row.run_result or '-' }}</p>
   {% else %}
   <p>아직 기록된 로그가 없습니다.</p>
   {% endfor %}

@@ -36,13 +36,13 @@ class SchedulerRuntimeTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_should_run_interval_first(self):
-        settings = MonitorSettings(site="cultizm", enabled=True, interval_minutes=10)
+        settings = MonitorSettings(site="cultizm", enabled=True, interval_minutes=10, schedule_timezone="Asia/Seoul")
         should, reason = self.runtime.should_run("cultizm", settings, datetime(2026, 3, 15, 10, 0), {})
         self.assertTrue(should)
         self.assertEqual(reason, "first_run")
 
     def test_should_run_cron(self):
-        settings = MonitorSettings(site="cultizm", enabled=True, cron_expression="*/5 * * * *")
+        settings = MonitorSettings(site="cultizm", enabled=True, cron_expression="*/5 * * * *", schedule_timezone="Asia/Seoul")
         should, _ = self.runtime.should_run("cultizm", settings, datetime(2026, 3, 15, 10, 15), {})
         self.assertTrue(should)
         should2, _ = self.runtime.should_run("cultizm", settings, datetime(2026, 3, 15, 10, 16), {})
@@ -50,8 +50,8 @@ class SchedulerRuntimeTests(unittest.TestCase):
 
     def test_run_once_writes_scheduler_logs(self):
         settings = {
-            "cultizm": MonitorSettings(site="cultizm", enabled=False),
-            "hyundai": MonitorSettings(site="hyundai", enabled=False),
+            "cultizm": MonitorSettings(site="cultizm", enabled=False, schedule_timezone="Asia/Seoul"),
+            "hyundai": MonitorSettings(site="hyundai", enabled=False, schedule_timezone="Asia/Seoul"),
         }
         self.service.save_monitor_settings(settings)
 
@@ -63,6 +63,7 @@ class SchedulerRuntimeTests(unittest.TestCase):
         self.assertEqual(logs[0]["site"], "hyundai")
         self.assertEqual(logs[1]["site"], "cultizm")
         self.assertEqual(logs[0]["reason"], "disabled")
+        self.assertEqual(logs[0]["evaluation_timezone"], "Asia/Seoul")
 
 
 if __name__ == "__main__":

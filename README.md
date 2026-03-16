@@ -175,12 +175,23 @@ sudo systemctl status stock-check-admin
 관리 페이지의 `스케줄/알림 빈도 설정`은 `monitor_settings.json`에 저장되고,
 `python -m stock_check.run_scheduler --once` 실행 시 아래 순서로 실제 반영됩니다.
 
+- 스케줄러는 **crontab을 직접 수정하지 않습니다.**
+- `scripts/install_scheduler_timer.sh`가 systemd timer를 설치하며, 타이머가 **매분** `run_scheduler --once`를 호출합니다.
+- 각 호출 시점에 사이트별 조건을 내부 로직으로 판정합니다.
+
 1. `enabled=false`면 실행하지 않음
 2. 현재 시각이 `start_time ~ end_time` 범위 밖이면 실행하지 않음
 3. `cron_expression` 값이 있으면 cron 매칭 시에만 실행
 4. cron이 비어 있으면 `interval_minutes` 기준으로 마지막 실행 시각 대비 실행 여부 판단
 5. 실행 조건이 맞으면 사이트별 `stock_checker.py`를 실행하고 성공 시 `scheduler_state.json`에 `last_run_at` 저장
 
+### 시간 기준 정책
+
+- 스케줄 입력값(`start_time`, `end_time`, `cron_expression`)은 **항상 `Asia/Seoul`(KST, UTC+09:00)** 기준으로 해석합니다.
+- 서버가 UTC이든 다른 타임존이든 스케줄 계산은 한국 시간 기준으로 동작합니다.
+- 관리자 화면에는 서버 UTC 시각과 스케줄 기준(KST) 시각을 함께 표시합니다.
+
 참고:
 - `EMAIL_ALERT_INTERVAL`, `TELEGRAM_ALERT_INTERVAL`은 알림 중복 방지 간격(초)으로 계속 사용됩니다.
 - 스케줄러 타이머 설치: `sudo bash scripts/install_scheduler_timer.sh`
+- 상태 확인: `sudo systemctl status stock-check-scheduler.timer --no-pager`

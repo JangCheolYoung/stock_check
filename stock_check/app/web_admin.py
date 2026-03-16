@@ -1,10 +1,13 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
+from zoneinfo import ZoneInfo
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 
 from stock_check.app.services.admin_service import AdminService, MonitorSettings, NotifierSettings
+
+SCHEDULE_TIMEZONE = "Asia/Seoul"
 
 
 def create_app() -> Flask:
@@ -123,6 +126,7 @@ def create_app() -> Flask:
                     cron_expression=request.form.get(f"{site}_cron_expression", "").strip(),
                     policy=request.form.get(f"{site}_policy", "v1"),
                     repeat_interval_minutes=int(request.form.get(f"{site}_repeat_interval_minutes", "10") or "10"),
+                    schedule_timezone=SCHEDULE_TIMEZONE,
                 )
 
             service.save_monitor_settings(current)
@@ -132,21 +136,21 @@ def create_app() -> Flask:
             env_map["TELEGRAM_ALERT_INTERVAL"] = request.form.get("telegram_alert_interval", "3600").strip()
             service._write_env_map(env_map)
 
-            flash("스케줄/알림 빈도 설정이 저장되었습니다.", "success")
+            flash("스케줄/알림 빈도 설정이 저장되었습니다. (시간 기준: Asia/Seoul)", "success")
             return redirect(url_for("schedule_settings"))
 
         rows = service.load_monitor_settings()
         env_map = service._load_env_map()
-        now = datetime.now().astimezone()
-        offset_minutes = int((now.utcoffset().total_seconds() if now.utcoffset() else 0) / 60)
+        now_utc = datetime.now(timezone.utc)
+        now_seoul = now_utc.astimezone(ZoneInfo(SCHEDULE_TIMEZONE))
         return render_template(
             "schedule_settings.html",
             rows=rows,
             email_alert_interval=env_map.get("EMAIL_ALERT_INTERVAL", "3600"),
             telegram_alert_interval=env_map.get("TELEGRAM_ALERT_INTERVAL", "3600"),
-            server_now_iso=now.isoformat(),
-            server_timezone=now.tzname() or "LOCAL",
-            server_utc_offset_minutes=offset_minutes,
+            server_now_utc_iso=now_utc.isoformat(),
+            server_now_seoul_iso=now_seoul.isoformat(),
+            schedule_timezone=SCHEDULE_TIMEZONE,
         )
 
     @app.route("/settings/notifier", methods=["GET", "POST"])

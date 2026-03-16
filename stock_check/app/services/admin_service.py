@@ -1,5 +1,5 @@
-import os
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +28,7 @@ class MonitorSettings:
     cron_expression: str = ""
     policy: str = "v1"
     repeat_interval_minutes: int = 10
+    schedule_timezone: str = "Asia/Seoul"
 
 
 class AdminService:
@@ -209,7 +210,6 @@ class AdminService:
             return defaults
 
         try:
-
             raw = json.loads(self.monitor_settings_file.read_text(encoding="utf-8"))
             for site in ["cultizm", "hyundai"]:
                 row = raw.get(site, {})
@@ -222,6 +222,7 @@ class AdminService:
                     cron_expression=str(row.get("cron_expression", "")),
                     policy=str(row.get("policy", "v1")),
                     repeat_interval_minutes=int(row.get("repeat_interval_minutes", 10)),
+                    schedule_timezone=str(row.get("schedule_timezone", "Asia/Seoul")),
                 )
             return defaults
         except Exception:
@@ -238,6 +239,7 @@ class AdminService:
                 "cron_expression": settings.cron_expression,
                 "policy": settings.policy,
                 "repeat_interval_minutes": int(settings.repeat_interval_minutes),
+                "schedule_timezone": settings.schedule_timezone,
             }
         self.monitor_settings_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 

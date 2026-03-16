@@ -1,4 +1,3 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,7 +23,6 @@ class AdminServiceTests(unittest.TestCase):
         self.service.access_key_file.write_text("secret-key\n", encoding="utf-8")
         self.assertTrue(self.service.verify_access_key("secret-key"))
         self.assertFalse(self.service.verify_access_key("wrong"))
-
 
     def test_access_key_with_utf8_bom(self):
         self.service.access_key_file.parent.mkdir(parents=True, exist_ok=True)
@@ -69,13 +67,34 @@ class AdminServiceTests(unittest.TestCase):
 
     def test_save_and_load_monitor_settings(self):
         settings = {
-            "cultizm": MonitorSettings(site="cultizm", enabled=True, interval_minutes=15, start_time="08:00", end_time="22:00", cron_expression="*/15 8-22 * * *", policy="v2", repeat_interval_minutes=7),
-            "hyundai": MonitorSettings(site="hyundai", enabled=False, interval_minutes=30, start_time="10:00", end_time="20:00", cron_expression="", policy="v1", repeat_interval_minutes=10),
+            "cultizm": MonitorSettings(
+                site="cultizm",
+                enabled=True,
+                interval_minutes=15,
+                start_time="08:00",
+                end_time="22:00",
+                cron_expression="*/15 8-22 * * *",
+                policy="v2",
+                repeat_interval_minutes=7,
+                schedule_timezone="Asia/Seoul",
+            ),
+            "hyundai": MonitorSettings(
+                site="hyundai",
+                enabled=False,
+                interval_minutes=30,
+                start_time="10:00",
+                end_time="20:00",
+                cron_expression="",
+                policy="v1",
+                repeat_interval_minutes=10,
+                schedule_timezone="Asia/Seoul",
+            ),
         }
         self.service.save_monitor_settings(settings)
         loaded = self.service.load_monitor_settings()
         self.assertEqual(loaded["cultizm"].interval_minutes, 15)
         self.assertEqual(loaded["cultizm"].policy, "v2")
+        self.assertEqual(loaded["cultizm"].schedule_timezone, "Asia/Seoul")
         self.assertFalse(loaded["hyundai"].enabled)
 
     def test_scheduler_logs_append_and_load(self):

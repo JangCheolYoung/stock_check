@@ -4,7 +4,7 @@ import subprocess
 import sys
 from dataclasses import asdict
 from datetime import datetime, time
-from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from stock_check.app.services.admin_service import AdminService, MonitorSettings
 
@@ -68,6 +68,16 @@ class SchedulerRuntime:
     def save_state(self, state: dict) -> None:
         self.state_file.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    def _site_now(self, settings: MonitorSettings) -> datetime:
+        tz_name = settings.schedule_timezone or "Asia/Seoul"
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz_name = "Asia/Seoul"
+            tz = ZoneInfo(tz_name)
+        now = datetime.now(tz)
+        return now
+
     def should_run(self, site: str, settings: MonitorSettings, now: datetime, state: dict) -> tuple[bool, str]:
         if not settings.enabled:
             return False, "disabled"
@@ -85,7 +95,11 @@ class SchedulerRuntime:
         if not last_run:
             return True, "first_run"
 
-        delta = now - datetime.fromisoformat(last_run)
+        last_run_at = datetime.fromisoformat(last_run)
+        if last_run_at.tzinfo is None and now.tzinfo is not None:
+            last_run_at = last_run_at.replace(tzinfo=now.tzinfo)
+
+        delta = now - last_run_at
         if delta.total_seconds() >= settings.interval_minutes * 60:
             return True, "interval_elapsed"
         return False, "interval_not_elapsed"
@@ -106,30 +120,41 @@ class SchedulerRuntime:
         return False, f"exit_{proc.returncode}:{proc.stderr[-300:]}"
 
     def run_once(self) -> dict:
-        now = datetime.now()
+        executed_at = datetime.now().astimezone()
         settings = self.service.load_monitor_settings()
         state = self.load_state()
 
-        result = {"executed_at": now.isoformat(), "sites": {}}
+        result = {"executed_at": executed_at.isoformat(), "sites": {}}
 
         for site, conf in settings.items():
-            should, reason = self.should_run(site, conf, now, state)
-            info = {"reason": reason, "settings": asdict(conf), "ran": False, "run_result": "skipped"}
+            now_for_site = self._site_now(conf)
+            should, reason = self.should_run(site, conf, now_for_site, state)
+            info = {
+                "reason": reason,
+                "settings": asdict(conf),
+                "ran": False,
+                "run_result": "skipped",
+                "evaluation_now": now_for_site.isoformat(),
+                "evaluation_timezone": conf.schedule_timezone,
+            }
             if should:
                 ok, msg = self.run_site_checker(site)
                 info["ran"] = True
                 info["run_result"] = msg
                 if ok:
-                    state.setdefault(site, {})["last_run_at"] = now.isoformat()
+                    state.setdefault(site, {})["last_run_at"] = now_for_site.isoformat()
 
             self.service.append_scheduler_log(
                 {
-                    "executed_at": now.isoformat(),
+                    "executed_at": executed_at.isoformat(),
                     "site": site,
                     "reason": reason,
                     "ran": info["ran"],
                     "run_result": info["run_result"],
                     "settings": info["settings"],
+                    "evaluation_now": info["evaluation_now"],
+                    "evaluation_timezone": info["evaluation_timezone"],
+                    "window_check_detail": f"{conf.start_time}~{conf.end_time}",
                 }
             )
             result["sites"][site] = info
@@ -141,7 +166,7 @@ class SchedulerRuntime:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true", default=True)
-    args = parser.parse_args()
+    parser.parse_args()
 
     runtime = SchedulerRuntime()
     result = runtime.run_once()
