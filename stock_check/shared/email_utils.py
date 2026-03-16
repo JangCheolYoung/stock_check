@@ -1,24 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-/root/shared/email_utils.py
+stock_check/shared/email_utils.py
 공통 이메일 발송 모듈
 """
 
 import smtplib
 import json
 import os
+from pathlib import Path
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
 
+CURRENT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = CURRENT_DIR.parent.parent
+DEFAULT_DATA_ROOT = PROJECT_ROOT / "stock_check"
+
+load_dotenv(CURRENT_DIR / ".env")
 load_dotenv()
+
+
+def _site_dir(site_name):
+    data_root = Path(os.getenv("STOCK_CHECK_DATA_ROOT", str(DEFAULT_DATA_ROOT)))
+    return data_root / site_name
 
 def load_email_history(site_name):
     """사이트별 메일 발송 기록 로드"""
     try:
-        history_file = f"/root/{site_name}/email_history.json"
-        if os.path.exists(history_file):
+        history_file = _site_dir(site_name) / "email_history.json"
+        if history_file.exists():
             with open(history_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         return {}
@@ -28,7 +39,8 @@ def load_email_history(site_name):
 def save_email_history(site_name, history):
     """사이트별 메일 발송 기록 저장"""
     try:
-        history_file = f"/root/{site_name}/email_history.json"
+        history_file = _site_dir(site_name) / "email_history.json"
+        history_file.parent.mkdir(parents=True, exist_ok=True)
         with open(history_file, "w", encoding="utf-8") as f:
             json.dump(history, f, indent=2, ensure_ascii=False)
     except Exception as e:
@@ -124,8 +136,8 @@ def send_stock_alert(site_name, product, sizes, url):
 def load_system_alerts(site_name):
     """시스템 알림 기록 로드"""
     try:
-        alert_file = f"/root/{site_name}/system_alerts.json"
-        if os.path.exists(alert_file):
+        alert_file = _site_dir(site_name) / "system_alerts.json"
+        if alert_file.exists():
             with open(alert_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         return {}
@@ -135,7 +147,8 @@ def load_system_alerts(site_name):
 def save_system_alerts(site_name, alerts):
     """시스템 알림 기록 저장"""
     try:
-        alert_file = f"/root/{site_name}/system_alerts.json"
+        alert_file = _site_dir(site_name) / "system_alerts.json"
+        alert_file.parent.mkdir(parents=True, exist_ok=True)
         with open(alert_file, "w", encoding="utf-8") as f:
             json.dump(alerts, f, indent=2, ensure_ascii=False)
     except Exception as e:
@@ -198,4 +211,3 @@ def send_system_alert(site_name, alert_type, subject, body):
     except Exception as e:
         print(f"{site_name} 시스템 알림 발송 실패: {e}")
         return False
-
