@@ -755,6 +755,7 @@ import sys
 import time
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
 env_file = os.getenv('STOCK_CHECK_ENV_FILE')
 if env_file:
@@ -827,7 +828,7 @@ def check_single_stock(target):
         
         if not search_keyword(driver, keyword):
             log(f"{keyword} - 검색 실패", "ERROR")
-            return {"status": "search_failed", "product": keyword}
+            return {"status": StockStatus.SEARCH_FAILED.value, "product": keyword}
         
         wait_for_page_load(driver)
         
@@ -836,7 +837,7 @@ def check_single_stock(target):
         if '/products/' not in current_url:
             if not click_first_product(driver, keyword):
                 log(f"{keyword} - 검색 결과 없음", "INFO")
-                return {"status": "no_results", "product": keyword}
+                return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
             wait_for_page_load(driver)
         
         # 제품 페이지에서 제품명 검증
@@ -851,20 +852,20 @@ def check_single_stock(target):
             # 검색 결과 페이지에서 다시 찾기
             if not click_first_product(driver, keyword):
                 log(f"{keyword} - 재시도 후에도 검색 결과 없음", "INFO")
-                return {"status": "no_results", "product": keyword}
+                return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
             
             wait_for_page_load(driver)
             
             # 재검증
             if not verify_product_match(driver, keyword):
                 log(f"{keyword} - 재시도 후에도 제품명 불일치", "WARNING")
-                return {"status": "product_mismatch", "product": keyword}
+                return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
         
         available_sizes = get_available_sizes(driver)
         
         if not available_sizes:
             log(f"{keyword} - 사이즈 옵션 없음", "INFO")
-            return {"status": "no_sizes", "product": keyword}
+            return {"status": StockStatus.OUT_OF_STOCK.value, "product": keyword}
         
         # 사이즈 매칭
         matched_sizes = []
@@ -884,14 +885,14 @@ def check_single_stock(target):
         if matched_sizes:
             log(f"{keyword} - 재고 확인 성공 | 타겟: [{', '.join(target_sizes)}] | 재고: [{', '.join(available_sizes)}] | 매칭: [{', '.join(matched_sizes)}] ({elapsed:.1f}초)", "SUCCESS")
             return {
-                "status": "success",
+                "status": StockStatus.IN_STOCK.value,
                 "product": keyword,
                 "sizes": matched_sizes,
                 "url": driver.current_url
             }
         else:
             log(f"{keyword} - 재고 없음 | 타겟: [{', '.join(target_sizes)}] | 재고: [{', '.join(available_sizes)}] ({elapsed:.1f}초)", "INFO")
-            return {"status": "no_target_sizes", "product": keyword, "available_sizes": available_sizes}
+            return {"status": StockStatus.OUT_OF_STOCK.value, "product": keyword, "available_sizes": available_sizes}
         
     except Exception as e:
         elapsed = time.time() - start_time
@@ -948,11 +949,13 @@ def main():
                         search_results.append(result)
                 except concurrent.futures.TimeoutError:
                     log(f"타임아웃: {target['keyword']}", "ERROR")
-                    search_results.append({"status": "timeout", "product": target['keyword']})
+                    search_results.append({"status": StockStatus.PAGE_ERROR.value, "product": target['keyword']})
                 except Exception as e:
                     log(f"Future 오류: {e}", "ERROR")
-                    search_results.append({"status": "error", "product": target['keyword'], "error": str(e)})
+                    search_results.append({"status": StockStatus.UNKNOWN_ERROR.value, "product": target['keyword'], "error": str(e)})
         
+        alert_policy = AlertPolicy("cultizm")
+
         # 결과 분석
         available_items = []
         system_errors = []
@@ -961,7 +964,7 @@ def main():
         for result in search_results:
             status = result.get("status", "unknown")
             
-            if status == "success":
+            if status == StockStatus.IN_STOCK.value:
                 available_items.append({
                     "product": result["product"],
                     "sizes": result["sizes"], 
@@ -970,8 +973,13 @@ def main():
             elif status == "verification_failed":
                 verification_failed_items.append(result)
                 log(f"검증 실패로 알림 발송 제외: {result.get('product')} - {result.get('url')}", "WARNING")
-            elif status in ["search_failed", "error", "timeout"]:
+            elif status in [StockStatus.SEARCH_FAILED.value, StockStatus.UNKNOWN_ERROR.value, StockStatus.PAGE_ERROR.value]:
                 system_errors.append(result)
+                alert_policy.record_ops_status(result.get("product", "unknown"), {
+                    "last_status": status,
+                    "last_message": result.get("error", "crawler error"),
+                    "is_error": True,
+                })
         
         elapsed_time = time.time() - start_time
         
@@ -1001,11 +1009,27 @@ def main():
                 sizes = item["sizes"]
                 url = item["url"]
                 
-                if send_stock_alert("cultizm", product, sizes, url):
+                dedup_prefix = alert_policy.make_dedup_key(product, "ALL", StockStatus.IN_STOCK.value)
+                policy_mode = os.getenv("ALERT_POLICY_MODE", "v1")
+                decision = alert_policy.should_send(dedup_prefix, policy_mode=policy_mode)
+
+                if not decision.should_send:
+                    log(f"알림 스킵: {product} ({decision.reason})", "DEBUG")
+                    continue
+
+                if send_stock_alert("cultizm", product, sizes, url, dedup_prefix=dedup_prefix):
                     email_sent += 1
-                
+
                 if send_telegram_alert(product, sizes, url):
                     telegram_sent += 1
+
+                alert_policy.mark_sent(dedup_prefix, StockStatus.IN_STOCK.value)
+                alert_policy.record_ops_status(product, {
+                    "last_status": StockStatus.IN_STOCK.value,
+                    "last_message": f"sizes={','.join(sizes)}",
+                    "product_url": url,
+                    "is_error": False,
+                })
             
             log(f"재고 확인 완료 | 재고: {len(available_items)}개 | 이메일: {email_sent}개 | 텔레그램: {telegram_sent}개 | 소요시간: {elapsed_time:.1f}초", "SUCCESS")
             
