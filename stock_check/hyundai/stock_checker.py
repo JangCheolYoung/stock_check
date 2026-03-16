@@ -59,6 +59,12 @@ except Exception:
 # 배포본 혼재(레거시 코드/동적 평가)로 전역 스코프에서 StockStatus를 못 찾는 경우까지 방지
 builtins.StockStatus = StockStatus
 
+# 배포본 혼재(레거시 코드/동적 평가)로 AlertPolicy 참조가 남아 있는 경우까지 방지
+class AlertPolicy:  # type: ignore
+    pass
+
+builtins.AlertPolicy = AlertPolicy
+
 # 통합 환경변수 로드
 load_dotenv(PROJECT_ROOT / 'stock_check' / 'shared' / '.env')
 load_dotenv()
@@ -265,6 +271,24 @@ def load_targets():
     except Exception as e:
         log(f"targets.txt 로드 실패: {e}", "ERROR")
         return []
+
+
+def normalize_size_token(value: str) -> str:
+    """사이즈 비교용 정규화: 대소문자/공백만 무시하고 문자열은 정확 일치 비교."""
+    return value.replace(" ", "").lower()
+
+
+def match_target_sizes(available_options: list[str], target_sizes: list[str]) -> list[str]:
+    """타겟 사이즈를 정확 일치로 매칭하고 중복을 제거한다."""
+    available_tokens = {normalize_size_token(option) for option in available_options}
+    matched: list[str] = []
+    seen: set[str] = set()
+    for target_size in target_sizes:
+        token = normalize_size_token(target_size)
+        if token in available_tokens and token not in seen:
+            matched.append(target_size)
+            seen.add(token)
+    return matched
 
 # =========================
 # 현대 사이트 동작
@@ -507,14 +531,7 @@ def check_single_stock(target):
             return {"status": StockStatus.OUT_OF_STOCK.value, "product": keyword}
 
         # 4) 사이즈 매칭
-        matched_sizes = []
-        for option in available_options:
-            option_clean = option.replace(" ", "").lower()
-            for target_size in target_sizes:
-                target_clean = target_size.replace(" ", "").lower()
-                if target_clean in option_clean:
-                    matched_sizes.append(target_size)
-                    break
+        matched_sizes = match_target_sizes(available_options, target_sizes)
 
         elapsed = time.time() - start_time
 
