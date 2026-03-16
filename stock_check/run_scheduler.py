@@ -26,6 +26,8 @@ def in_time_window(now: datetime, start: str, end: str) -> bool:
 
 def _field_match(token: str, value: int) -> bool:
     token = token.strip()
+    if "," in token:
+        return any(_field_match(part, value) for part in token.split(",") if part.strip())
     if token == "*":
         return True
     if token.startswith("*/"):
@@ -33,7 +35,12 @@ def _field_match(token: str, value: int) -> bool:
         return value % step == 0
     if "-" in token:
         a, b = token.split("-", 1)
-        return int(a) <= value <= int(b)
+        start = int(a)
+        end = int(b)
+        if start <= end:
+            return start <= value <= end
+        # 자정 교차 범위 지원 (예: 19-5)
+        return value >= start or value <= end
     return int(token) == value
 
 

@@ -22,6 +22,15 @@ class SchedulerLogicTests(unittest.TestCase):
         self.assertTrue(cron_matches("*/10 * * * *", datetime(2026, 3, 15, 10, 20)))
         self.assertFalse(cron_matches("*/10 * * * *", datetime(2026, 3, 15, 10, 23)))
 
+    def test_cron_matches_wraparound_hour_range(self):
+        self.assertTrue(cron_matches("*/10 19-5 * * *", datetime(2026, 3, 15, 2, 40)))
+        self.assertTrue(cron_matches("*/10 19-5 * * *", datetime(2026, 3, 15, 22, 20)))
+        self.assertFalse(cron_matches("*/10 19-5 * * *", datetime(2026, 3, 15, 12, 20)))
+
+    def test_cron_matches_comma_list(self):
+        self.assertTrue(cron_matches("0 9,12,18 * * *", datetime(2026, 3, 15, 12, 0)))
+        self.assertFalse(cron_matches("0 9,12,18 * * *", datetime(2026, 3, 15, 13, 0)))
+
 
 class SchedulerRuntimeTests(unittest.TestCase):
     def setUp(self):

@@ -190,6 +190,7 @@ sudo systemctl status stock-check-admin
 - 스케줄 입력값(`start_time`, `end_time`, `cron_expression`)은 **항상 `Asia/Seoul`(KST, UTC+09:00)** 기준으로 해석합니다.
 - 서버가 UTC이든 다른 타임존이든 스케줄 계산은 한국 시간 기준으로 동작합니다.
 - 관리자 화면에는 서버 UTC 시각과 스케줄 기준(KST) 시각을 함께 표시합니다.
+- cron 시간 범위는 자정 교차를 지원합니다. 예: `19-5`는 `19:00~05:59` 구간으로 해석됩니다.
 
 참고:
 - `EMAIL_ALERT_INTERVAL`, `TELEGRAM_ALERT_INTERVAL`은 알림 중복 방지 간격(초)으로 계속 사용됩니다.
