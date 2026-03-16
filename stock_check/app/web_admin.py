@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from functools import wraps
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
@@ -129,11 +130,14 @@ def create_app() -> Flask:
 
         rows = service.load_monitor_settings()
         env_map = service._load_env_map()
+        now = datetime.now().astimezone()
         return render_template(
             "schedule_settings.html",
             rows=rows,
             email_alert_interval=env_map.get("EMAIL_ALERT_INTERVAL", "3600"),
             telegram_alert_interval=env_map.get("TELEGRAM_ALERT_INTERVAL", "3600"),
+            server_now_iso=now.isoformat(),
+            server_timezone=now.tzname() or "LOCAL",
         )
 
     @app.route("/settings/notifier", methods=["GET", "POST"])

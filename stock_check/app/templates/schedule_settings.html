@@ -1,6 +1,12 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>스케줄/알림 빈도 설정</h2>
+<div class="card">
+  <h3>서버 현재 시간</h3>
+  <p>타임존: <strong>{{ server_timezone }}</strong></p>
+  <p>현재시각: <strong id="server-clock"></strong></p>
+  <p style="font-size:12px;color:#666;">※ 입력한 시간(HH:MM)은 위 서버 시간 기준으로 적용됩니다.</p>
+</div>
 <form method="post">
   {% for site in ['cultizm', 'hyundai'] %}
   {% set row = rows[site] %}
@@ -41,4 +47,26 @@
 
   <button type="submit">저장</button>
 </form>
+<script>
+  (function () {
+    const zone = {{ server_timezone|tojson }};
+    let now = new Date({{ server_now_iso|tojson }});
+    const el = document.getElementById('server-clock');
+    function tick() {
+      if (el) {
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        el.textContent = `${y}-${m}-${d} ${hh}:${mm}:${ss} (${zone})`;
+      }
+      now = new Date(now.getTime() + 1000);
+    }
+    tick();
+    setInterval(tick, 1000);
+  })();
+</script>
+
 {% endblock %}
