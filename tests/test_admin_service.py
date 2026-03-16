@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from stock_check.app.config import AppConfig
@@ -105,6 +106,24 @@ class AdminServiceTests(unittest.TestCase):
         self.assertEqual(len(logs), 2)
         self.assertEqual(logs[0]["site"], "hyundai")
         self.assertEqual(logs[1]["site"], "cultizm")
+
+    def test_scheduler_logs_backfill_missing_timezone_and_window(self):
+        self.service.append_scheduler_log(
+            {
+                "site": "cultizm",
+                "reason": "out_of_window",
+                "ran": False,
+                "run_result": "skipped",
+                "executed_at": "2026-03-16T15:24:22.919788",
+                "settings": {"start_time": "19:10", "end_time": "05:00", "schedule_timezone": "Asia/Seoul"},
+            }
+        )
+
+        row = self.service.load_scheduler_logs(limit=1)[0]
+        self.assertEqual(row["evaluation_timezone"], "Asia/Seoul")
+        self.assertEqual(row["window_check_detail"], "19:10~05:00")
+        self.assertIn("+09:00", row["evaluation_now"])
+        datetime.fromisoformat(row["evaluation_now"])
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from stock_check.app.config import AppConfig
 
@@ -193,7 +194,7 @@ class AdminService:
             if not row:
                 continue
             try:
-                rows.append(json.loads(row))
+                rows.append(self._normalize_scheduler_log_row(json.loads(row)))
             except json.JSONDecodeError:
                 continue
 
@@ -222,11 +223,35 @@ class AdminService:
                     cron_expression=str(row.get("cron_expression", "")),
                     policy=str(row.get("policy", "v1")),
                     repeat_interval_minutes=int(row.get("repeat_interval_minutes", 10)),
-                    schedule_timezone=str(row.get("schedule_timezone", "Asia/Seoul")),
+                    schedule_timezone=(str(row.get("schedule_timezone", "Asia/Seoul")) or "Asia/Seoul"),
                 )
             return defaults
         except Exception:
             return defaults
+
+    def _normalize_scheduler_log_row(self, row: dict) -> dict:
+        """구버전 로그/누락 필드를 현재 UI 표시에 맞게 보정한다."""
+        settings = row.get("settings") or {}
+        timezone_name = row.get("evaluation_timezone") or settings.get("schedule_timezone") or "Asia/Seoul"
+        row["evaluation_timezone"] = timezone_name
+
+        if not row.get("window_check_detail"):
+            start = settings.get("start_time")
+            end = settings.get("end_time")
+            if start and end:
+                row["window_check_detail"] = f"{start}~{end}"
+
+        evaluation_now = row.get("evaluation_now") or row.get("executed_at")
+        if evaluation_now:
+            try:
+                parsed = datetime.fromisoformat(str(evaluation_now))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=ZoneInfo(timezone_name))
+                row["evaluation_now"] = parsed.isoformat()
+            except Exception:
+                row["evaluation_now"] = str(evaluation_now)
+
+        return row
 
     def save_monitor_settings(self, settings_by_site: dict[str, MonitorSettings]) -> None:
         payload = {}

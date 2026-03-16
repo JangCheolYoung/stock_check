@@ -25,8 +25,8 @@
       <td>{{ row.evaluation_now or row.executed_at or '-' }}</td>
       <td>{{ row.site or '-' }}</td>
       <td>{{ row.reason or '-' }}</td>
-      <td>{{ row.evaluation_timezone or '-' }}</td>
-      <td>{{ row.window_check_detail or '-' }}</td>
+      <td>{{ row.evaluation_timezone or (row.settings.schedule_timezone if row.settings else 'Asia/Seoul') }}</td>
+      <td>{{ row.window_check_detail or ((row.settings.start_time ~ '~' ~ row.settings.end_time) if row.settings else '-') }}</td>
       <td>{{ 'Y' if row.ran else 'N' }}</td>
       <td>{{ row.run_result or '-' }}</td>
     </tr>

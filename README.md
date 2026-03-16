@@ -195,3 +195,33 @@ sudo systemctl status stock-check-admin
 - `EMAIL_ALERT_INTERVAL`, `TELEGRAM_ALERT_INTERVAL`은 알림 중복 방지 간격(초)으로 계속 사용됩니다.
 - 스케줄러 타이머 설치: `sudo bash scripts/install_scheduler_timer.sh`
 - 상태 확인: `sudo systemctl status stock-check-scheduler.timer --no-pager`
+
+### 운영 점검: admin/scheduler가 같은 설정 파일을 보는지 확인
+
+아래 명령으로 두 서비스가 동일한 `STOCK_CHECK_DATA_ROOT`를 사용하는지 먼저 확인하세요.
+
+```bash
+sudo systemctl show -p Environment stock-check-admin.service
+sudo systemctl show -p Environment stock-check-scheduler.service
+```
+
+실제 설정 파일 경로가 하나로 일치하는지 점검합니다.
+
+```bash
+sudo find /opt -type f -name monitor_settings.json 2>/dev/null
+ls -li /opt/stock_check/stock_check/shared/monitor_settings.json
+```
+
+현재 앱 코드가 참조하는 실경로를 직접 확인합니다.
+
+```bash
+cd /opt/stock_check
+source .venv/bin/activate
+PYTHONPATH=/opt/stock_check python - <<'PY'
+from stock_check.app.services.admin_service import AdminService
+s = AdminService()
+print("data_root=", s.config.data_root)
+print("monitor_settings_file=", s.monitor_settings_file)
+print("scheduler_log_file=", s.scheduler_log_file)
+PY
+```
