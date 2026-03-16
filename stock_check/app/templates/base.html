@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stock Check 관리자</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    .nav a { margin-right: 12px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    .flash-success { color: #0a7c2f; }
+    .flash-error { color: #a31515; }
+    input[type=text], input[type=password] { width: 100%; padding: 8px; margin: 4px 0; }
+    button { padding: 8px 14px; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="{{ url_for('dashboard') }}">대시보드</a>
+    <a href="{{ url_for('targets', site='cultizm') }}">Cultizm 타겟</a>
+    <a href="{{ url_for('targets', site='hyundai') }}">Hyundai 타겟</a>
+    <a href="{{ url_for('notifier_settings') }}">알림 설정</a>
+    <a href="{{ url_for('schedule_settings') }}">스케줄/빈도 설정</a>
+    <a href="{{ url_for('scheduler_logs') }}">스케줄 로그</a>
+    {% if session.get('authorized') %}
+    <form method="post" action="{{ url_for('logout') }}" style="display:inline;">
+      <button type="submit">로그아웃</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+      <p class="flash-{{ category }}">{{ message }}</p>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</body>
+</html>
