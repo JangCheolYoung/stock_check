@@ -4,9 +4,12 @@
 import sys
 import time
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv('/root/shared/.env')
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / 'shared' / '.env')
+load_dotenv()
 
 def send_telegram_message(bot_token, chat_id, message, repeat_count, interval):
     try:
