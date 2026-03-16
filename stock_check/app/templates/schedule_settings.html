@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>스케줄/알림 빈도 설정</h2>
+<div class="card">
+  <h3>시간 기준 안내</h3>
+  <p>스케줄 해석 기준 타임존: <strong>{{ schedule_timezone }} (KST, UTC+09:00)</strong></p>
+  <p>서버 UTC 시각: <strong id="server-clock-utc"></strong></p>
+  <p>스케줄 기준(KST) 시각: <strong id="server-clock-kst"></strong></p>
+  <p style="font-size:12px;color:#666;">※ 시작/종료 시각 및 cron 표현식은 항상 한국시간(Asia/Seoul) 기준으로 처리됩니다.</p>
+</div>
+<form method="post">
+  {% for site in ['cultizm', 'hyundai'] %}
+  {% set row = rows[site] %}
+  <div class="card">
+    <h3>{{ site|upper }}</h3>
+    <label><input type="checkbox" name="{{ site }}_enabled" {% if row.enabled %}checked{% endif %}/> 모니터링 활성화</label>
+    <label>체크 간격(분)</label>
+    <input type="text" name="{{ site }}_interval_minutes" value="{{ row.interval_minutes }}" />
+
+    <label>운영 시작 시각(HH:MM, KST)</label>
+    <input type="text" name="{{ site }}_start_time" value="{{ row.start_time }}" />
+
+    <label>운영 종료 시각(HH:MM, KST)</label>
+    <input type="text" name="{{ site }}_end_time" value="{{ row.end_time }}" />
+
+    <label>Cron 표현식(선택, KST 기준 / 비어있으면 interval 사용)</label>
+    <input type="text" name="{{ site }}_cron_expression" value="{{ row.cron_expression }}" placeholder="*/10 9-23 * * *" />
+
+    <label>알림 정책</label>
+    <select name="{{ site }}_policy">
+      <option value="v1" {% if row.policy == 'v1' %}selected{% endif %}>v1 (24시간 1회)</option>
+      <option value="v2" {% if row.policy == 'v2' %}selected{% endif %}>v2 (ACK 전 반복)</option>
+    </select>
+
+    <label>v2 반복 간격(분)</label>
+    <input type="text" name="{{ site }}_repeat_interval_minutes" value="{{ row.repeat_interval_minutes }}" />
+  </div>
+  {% endfor %}
+
+  <div class="card">
+    <h3>전역 알림 빈도</h3>
+    <label>EMAIL_ALERT_INTERVAL (초)</label>
+    <input type="text" name="email_alert_interval" value="{{ email_alert_interval }}" />
+
+    <label>TELEGRAM_ALERT_INTERVAL (초)</label>
+    <input type="text" name="telegram_alert_interval" value="{{ telegram_alert_interval }}" />
+  </div>
+
+  <button type="submit">저장</button>
+</form>
+<script>
+  (function () {
+    let nowUtc = new Date({{ server_now_utc_iso|tojson }});
+    let nowKst = new Date({{ server_now_seoul_iso|tojson }});
+
+    const utcEl = document.getElementById('server-clock-utc');
+    const kstEl = document.getElementById('server-clock-kst');
+
+    function pad(num) {
+      return String(num).padStart(2, '0');
+    }
+
+    function formatUtc(dateObj) {
+      const y = dateObj.getUTCFullYear();
+      const m = pad(dateObj.getUTCMonth() + 1);
+      const d = pad(dateObj.getUTCDate());
+      const hh = pad(dateObj.getUTCHours());
+      const mm = pad(dateObj.getUTCMinutes());
+      const ss = pad(dateObj.getUTCSeconds());
+      return `${y}-${m}-${d} ${hh}:${mm}:${ss} (UTC)`;
+    }
+
+    function formatKst(dateObj) {
+      const y = dateObj.getFullYear();
+      const m = pad(dateObj.getMonth() + 1);
+      const d = pad(dateObj.getDate());
+      const hh = pad(dateObj.getHours());
+      const mm = pad(dateObj.getMinutes());
+      const ss = pad(dateObj.getSeconds());
+      return `${y}-${m}-${d} ${hh}:${mm}:${ss} (KST)`;
+    }
+
+    function tick() {
+      if (utcEl) utcEl.textContent = formatUtc(nowUtc);
+      if (kstEl) kstEl.textContent = formatKst(nowKst);
+      nowUtc = new Date(nowUtc.getTime() + 1000);
+      nowKst = new Date(nowKst.getTime() + 1000);
+    }
+
+    tick();
+    setInterval(tick, 1000);
+  })();
+</script>
+
+{% endblock %}

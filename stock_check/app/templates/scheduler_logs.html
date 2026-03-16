@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>스케줄 실행 로그</h2>
+<div class="card">
+  <p>최신순으로 최대 500건을 표시합니다.</p>
+  <p style="font-size:12px;color:#666;">reason 설명: out_of_window(시간창 외), interval_not_elapsed(간격 미도달), cron_not_match(cron 미일치), disabled(비활성).</p>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>로그시각</th>
+      <th>실행기준시각</th>
+      <th>사이트</th>
+      <th>판단사유</th>
+      <th>판단타임존</th>
+      <th>시간창</th>
+      <th>실행여부</th>
+      <th>결과</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.logged_at or '-' }}</td>
+      <td>{{ row.evaluation_now or row.executed_at or '-' }}</td>
+      <td>{{ row.site or '-' }}</td>
+      <td>{{ row.reason or '-' }}</td>
+      <td>{{ row.evaluation_timezone or '-' }}</td>
+      <td>{{ row.window_check_detail or '-' }}</td>
+      <td>{{ 'Y' if row.ran else 'N' }}</td>
+      <td>{{ row.run_result or '-' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8">아직 기록된 실행 로그가 없습니다.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
