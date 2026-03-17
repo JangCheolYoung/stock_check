@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>알림 설정</h2>
+<div class="card">
+  <form method="post">
+    <label>SMTP 서버</label>
+    <input type="text" name="smtp_server" value="{{ settings.smtp_server }}" />
+
+    <label>SMTP 포트</label>
+    <input type="text" name="smtp_port" value="{{ settings.smtp_port }}" />
+
+    <label>SMTP 사용자</label>
+    <input type="text" name="smtp_user" value="{{ settings.smtp_user }}" />
+
+    <label>SMTP 비밀번호</label>
+    <input type="password" name="smtp_password" value="{{ settings.smtp_password }}" />
+
+    <label>이메일 수신자(쉼표 구분)</label>
+    <input type="text" name="email_recipients" value="{{ settings.email_recipients }}" />
+
+    <label>텔레그램 Bot Token</label>
+    <input type="text" name="telegram_bot_token" value="{{ settings.telegram_bot_token }}" />
+
+    <label>텔레그램 Chat ID</label>
+    <input type="text" name="telegram_chat_id" value="{{ settings.telegram_chat_id }}" />
+
+    <button type="submit">저장</button>
+  </form>
+</div>
+{% endblock %}
