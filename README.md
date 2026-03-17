@@ -230,7 +230,7 @@ PY
 
 ### 스케줄러가 안 도는 것 같을 때 빠른 점검
 
-`update_deploy.sh`는 타이머가 없으면 자동으로 `install_scheduler_timer.sh`를 호출해 설치합니다.
+`update_deploy.sh`는 매 배포 시 `install_scheduler_timer.sh`를 호출해 타이머를 설치/갱신(덮어쓰기)하고 재시작합니다.
 
 ```bash
 cd /opt/stock_check

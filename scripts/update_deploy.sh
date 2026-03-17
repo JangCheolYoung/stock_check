@@ -26,12 +26,8 @@ sudo -u "$RUN_USER" bash -lc "cd '$APP_DIR' && source .venv/bin/activate && pyth
 systemctl restart "$SERVICE_NAME"
 systemctl status "$SERVICE_NAME" --no-pager
 
-if systemctl list-unit-files | grep -q "stock-check-scheduler.timer"; then
-  systemctl restart stock-check-scheduler.timer
-  systemctl status stock-check-scheduler.timer --no-pager
-else
-  echo "[정보] stock-check-scheduler.timer 미설치 상태 -> 설치 진행"
-  bash "$APP_DIR/scripts/install_scheduler_timer.sh"
-fi
+echo "[정보] 스케줄러 타이머 설치/갱신 적용"
+APP_DIR="$APP_DIR" RUN_USER="$RUN_USER" bash "$APP_DIR/scripts/install_scheduler_timer.sh"
+systemctl status stock-check-scheduler.timer --no-pager
 
 echo "[완료] 업데이트 배포 완료"

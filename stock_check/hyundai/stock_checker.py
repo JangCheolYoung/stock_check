@@ -59,12 +59,6 @@ except Exception:
 # 배포본 혼재(레거시 코드/동적 평가)로 전역 스코프에서 StockStatus를 못 찾는 경우까지 방지
 builtins.StockStatus = StockStatus
 
-# 배포본 혼재(레거시 코드/동적 평가)로 AlertPolicy 참조가 남아 있는 경우까지 방지
-class AlertPolicy:  # type: ignore
-    pass
-
-builtins.AlertPolicy = AlertPolicy
-
 # 통합 환경변수 로드
 load_dotenv(PROJECT_ROOT / 'stock_check' / 'shared' / '.env')
 load_dotenv()
