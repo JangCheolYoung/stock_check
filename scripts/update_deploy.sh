@@ -29,6 +29,9 @@ systemctl status "$SERVICE_NAME" --no-pager
 if systemctl list-unit-files | grep -q "stock-check-scheduler.timer"; then
   systemctl restart stock-check-scheduler.timer
   systemctl status stock-check-scheduler.timer --no-pager
+else
+  echo "[정보] stock-check-scheduler.timer 미설치 상태 -> 설치 진행"
+  bash "$APP_DIR/scripts/install_scheduler_timer.sh"
 fi
 
 echo "[완료] 업데이트 배포 완료"
