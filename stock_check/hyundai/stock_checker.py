@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-/root/hyundai/stock_checker.py
+stock_check/hyundai/stock_checker.py
 더현대닷컴 재고 확인 스크립트 (안정성 강화 버전)
 
 핵심 개선
@@ -19,6 +19,8 @@ import json
 import signal
 import threading
 import traceback
+import builtins
+from pathlib import Path
 from datetime import datetime
 import concurrent.futures
 import warnings
@@ -37,19 +39,44 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
 # 공통 모듈 경로 추가
-sys.path.append('/root/shared')
-from email_utils import send_stock_alert, send_system_alert
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.append(str(PROJECT_ROOT))
+from stock_check.shared.email_utils import send_stock_alert, send_system_alert
+
+# 하위호환: 일부 배포본에서 StockStatus 참조 코드가 남아 있어 NameError가 발생하는 경우 방지
+try:
+    from stock_check.app.models import StockStatus  # noqa: F401
+except Exception:
+    class StockStatus:  # type: ignore
+        IN_STOCK = "IN_STOCK"
+        OUT_OF_STOCK = "OUT_OF_STOCK"
+        PRODUCT_NOT_FOUND = "PRODUCT_NOT_FOUND"
+        SEARCH_FAILED = "SEARCH_FAILED"
+        PAGE_ERROR = "PAGE_ERROR"
+        BLOCKED = "BLOCKED"
+        UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
+# 배포본 혼재(레거시 코드/동적 평가)로 전역 스코프에서 StockStatus를 못 찾는 경우까지 방지
+builtins.StockStatus = StockStatus
+
+# 배포본 혼재(레거시 코드/동적 평가)로 AlertPolicy 참조가 남아 있는 경우까지 방지
+class AlertPolicy:  # type: ignore
+    pass
+
+builtins.AlertPolicy = AlertPolicy
 
 # 통합 환경변수 로드
-load_dotenv('/root/shared/.env')
+load_dotenv(PROJECT_ROOT / 'stock_check' / 'shared' / '.env')
+load_dotenv()
 
 # =========================
 # 설정
 # =========================
-BASE_DIR = "/root/hyundai"
-TARGET_FILE = os.path.join(BASE_DIR, "targets.txt")
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-LOCK_FILE = os.path.join(BASE_DIR, "stock_checker.lock")
+DATA_ROOT = Path(os.getenv('STOCK_CHECK_DATA_ROOT', str(PROJECT_ROOT / 'stock_check')))
+BASE_DIR = DATA_ROOT / 'hyundai'
+TARGET_FILE = BASE_DIR / 'targets.txt'
+LOG_DIR = BASE_DIR / 'logs'
+LOCK_FILE = BASE_DIR / 'stock_checker.lock'
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -244,6 +271,24 @@ def load_targets():
     except Exception as e:
         log(f"targets.txt 로드 실패: {e}", "ERROR")
         return []
+
+
+def normalize_size_token(value: str) -> str:
+    """사이즈 비교용 정규화: 대소문자/공백만 무시하고 문자열은 정확 일치 비교."""
+    return value.replace(" ", "").lower()
+
+
+def match_target_sizes(available_options: list[str], target_sizes: list[str]) -> list[str]:
+    """타겟 사이즈를 정확 일치로 매칭하고 중복을 제거한다."""
+    available_tokens = {normalize_size_token(option) for option in available_options}
+    matched: list[str] = []
+    seen: set[str] = set()
+    for target_size in target_sizes:
+        token = normalize_size_token(target_size)
+        if token in available_tokens and token not in seen:
+            matched.append(target_size)
+            seen.add(token)
+    return matched
 
 # =========================
 # 현대 사이트 동작
@@ -486,14 +531,7 @@ def check_single_stock(target):
             return {"status": "no_options", "product": keyword}
 
         # 4) 사이즈 매칭
-        matched_sizes = []
-        for option in available_options:
-            option_clean = option.replace(" ", "").lower()
-            for target_size in target_sizes:
-                target_clean = target_size.replace(" ", "").lower()
-                if target_clean in option_clean:
-                    matched_sizes.append(target_size)
-                    break
+        matched_sizes = match_target_sizes(available_options, target_sizes)
 
         elapsed = time.time() - start_time
 
@@ -514,6 +552,8 @@ def check_single_stock(target):
     except Exception as e:
         elapsed = time.time() - start_time
         log(f"{keyword} - 오류 발생: {e} ({elapsed:.1f}초)", "ERROR")
+        if "StockStatus" in str(e):
+            log(traceback.format_exc(), "ERROR")
         return {"status": "error", "product": keyword, "error": str(e)}
 
     finally:
@@ -541,17 +581,12 @@ def main():
 
         log(f"검색 타겟: {len(targets)}개", "INFO")
 
-        # 워커 수 결정 (기본 1: 안정성)
+        # t4g.small 운영 정책: 단일 워커 고정 (코어 1개 사용)
         if not check_system_resources():
-            max_workers = 1
-            log("리소스 부족 -> 단일 워커", "INFO")
-        else:
-            max_workers = int(os.getenv("MAX_WORKERS_HYUNDAI", "1"))
-            max_workers = max(1, min(max_workers, len(targets)))
-            # 타겟이 많아도 기본은 보수적으로
-            if len(targets) >= 10:
-                max_workers = min(max_workers, 2)
-            log(f"워커 수: {max_workers}", "INFO")
+            log("리소스 체크 경고가 있지만 단일 워커 정책 유지", "WARNING")
+
+        max_workers = 1
+        log("워커 수 고정: 1", "INFO")
 
         # 전체 타임아웃(초) - 기본 12분
         overall_timeout = int(os.getenv("OVERALL_TIMEOUT_SEC", "720"))
@@ -696,4 +731,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
