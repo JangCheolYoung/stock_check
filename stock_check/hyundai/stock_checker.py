@@ -734,6 +734,8 @@ def main():
     except Exception as e:
         elapsed_time = time.time() - start_time
         log(f"전체 프로세스 오류: {e} | 소요: {elapsed_time:.1f}초", "ERROR")
+        if "AlertPolicy" in str(e) or "StockStatus" in str(e):
+            log(traceback.format_exc(), "ERROR")
         # 디버그 모드면 traceback 기록
         if os.getenv("DEBUG_MODE", "false").lower() == "true":
             log(traceback.format_exc(), "DEBUG")

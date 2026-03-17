@@ -1062,6 +1062,8 @@ def main():
         log("전체 프로세스 타임아웃 (5분 초과)", "ERROR")
     except Exception as e:
         log(f"전체 프로세스 오류: {e}", "ERROR")
+        if "AlertPolicy" in str(e) or "StockStatus" in str(e):
+            log(traceback.format_exc(), "ERROR")
     
     finally:
         remove_lock()

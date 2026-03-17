@@ -231,9 +231,13 @@ PY
 ### 스케줄러가 안 도는 것 같을 때 빠른 점검
 
 `update_deploy.sh`는 매 배포 시 `install_scheduler_timer.sh`를 호출해 타이머를 설치/갱신(덮어쓰기)하고 재시작합니다.
+(`RUN_USER`를 지정하지 않으면 `/opt/stock_check` 소유자로 자동 감지하며, 실패 시 root로 대체합니다.)
 
 ```bash
 cd /opt/stock_check
 sudo bash scripts/update_deploy.sh
 sudo bash scripts/check_scheduler_health.sh
 ```
+
+`AlertPolicy() takes no arguments` 오류가 보이면, 보통 서버 파일이 최신으로 갱신되지 않은 상태입니다.
+위 두 명령을 실행한 뒤 `check_scheduler_health.sh`의 `[6]` 배포 파일 검사 결과를 확인하세요.
