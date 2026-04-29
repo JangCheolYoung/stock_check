@@ -238,3 +238,6 @@ cd /opt/stock_check
 sudo bash scripts/update_deploy.sh
 sudo bash scripts/check_scheduler_health.sh
 ```
+
+`AlertPolicy() takes no arguments` 오류가 보이면, 보통 서버 파일이 최신으로 갱신되지 않은 상태입니다.
+위 두 명령을 실행한 뒤 `check_scheduler_health.sh`의 `[6]` 배포 파일 검사 결과를 확인하세요.
