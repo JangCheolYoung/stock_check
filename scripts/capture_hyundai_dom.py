@@ -62,6 +62,7 @@ OPTION_LAYER_HINT_SELECTORS = [
     "[class*='OptionLayer']",
     "[class*='OptionSheet']",
     "[role='dialog']",
+    "[role='alertdialog']",
     "[aria-modal='true']",
     "[data-state='open']",
     "[class*='BottomSheet']",
@@ -69,6 +70,10 @@ OPTION_LAYER_HINT_SELECTORS = [
     "[class*='Drawer']",
     "[class*='Sheet']",
     "[class*='Modal']",
+    "[class*='Dialog']",
+    "[class*='Popup']",
+    "[class*='Alert']",
+    "[class*='Confirm']",
     "body > div[id^='radix-']",
     "body > div[class*='portal']",
     "body > div[id^='headlessui-']",
@@ -598,6 +603,15 @@ def main() -> int:
         help="--no-headless 시, 종료 전 N초간 창을 유지 (기본 0). 화면을 더 보고 싶을 때 사용",
     )
     parser.add_argument(
+        "--manual-pause",
+        action="store_true",
+        help=(
+            "자동 캡쳐 완료 후 터미널에서 Enter 를 누를 때까지 대기. "
+            "사람이 직접 로그인하고 옵션 시트를 펼친 뒤 Enter 를 누르면 "
+            "그 순간의 page_source / 스크린샷 / 옵션 레이어 후보가 자동 저장됨."
+        ),
+    )
+    parser.add_argument(
         "--ua",
         default=None,
         help="User-Agent 오버라이드 (예: 모바일 UA). 지정 시 CHROME_UA 환경변수로 주입",
@@ -653,6 +667,31 @@ def main() -> int:
 
         dump_buy_button_candidates(driver, out_dir)
         click_buy_and_dump_layer(driver, out_dir)
+
+        if args.manual_pause:
+            log("=" * 60)
+            log("수동 작업 모드")
+            log(" - 브라우저에서 직접 로그인하고, 상품 상세에서 '구매하기'를 눌러")
+            log("   옵션 시트(사이즈/수량) 가 떠 있는 상태를 만들어 주세요.")
+            log(" - 그 상태에서 이 터미널로 돌아와 Enter 를 누르면, 현재 DOM 을")
+            log("   '99_manual_*' 파일들로 저장하고 종료합니다.")
+            log("=" * 60)
+            try:
+                input(">>> 옵션 시트가 떠 있는 상태에서 Enter: ")
+            except (EOFError, KeyboardInterrupt):
+                pass
+            log("수동 시점 스냅샷 저장")
+            try:
+                dump_page(driver, out_dir, "99_manual_snapshot")
+                n = _dump_option_layer(driver, out_dir, "manual")
+                _dump_keyword_context(driver, out_dir, "manual")
+                log(f"  옵션 레이어 후보 {n}개 / 키워드 컨텍스트 dump 완료")
+                # body 끝 100KB 까지 통째로 저장 (Portal 모달 보존용)
+                tail = driver.execute_script("return document.body.outerHTML;") or ""
+                save_text(out_dir / "99_manual_body.html", tail[-200000:])
+            except Exception as exc:
+                log(f"  ! 수동 스냅샷 실패: {exc}")
+                save_text(out_dir / "manual_error.txt", traceback.format_exc())
 
         log("캡쳐 완료")
         return 0
