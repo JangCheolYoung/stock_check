@@ -280,12 +280,25 @@ def open_first_product(driver, out_dir: Path) -> bool:
             cards = driver.find_elements(By.CSS_SELECTOR, sel)
             if not cards:
                 continue
-            for link_sel in ("a.title.ellipsis", "a.title", "a[href*='goods']", "a"):
+            first_card = cards[0]
+
+            # 1) 카드 자체가 <a href> 이면 그대로 사용
+            try:
+                if first_card.tag_name.lower() == "a" and first_card.get_attribute("href"):
+                    first_link = first_card
+                    log(f"  카드={sel} (a 태그 자체 사용) href={first_link.get_attribute('href')}")
+                    break
+            except Exception:
+                pass
+
+            # 2) 자식에서 링크 탐색
+            for link_sel in ("a.title.ellipsis", "a.title", "a[href*='goods']", "a[href*='/product']", "a"):
                 try:
-                    first_link = cards[0].find_element(By.CSS_SELECTOR, link_sel)
+                    first_link = first_card.find_element(By.CSS_SELECTOR, link_sel)
                     if first_link and first_link.get_attribute("href"):
-                        log(f"  카드={sel} / 링크={link_sel}")
+                        log(f"  카드={sel} / 링크={link_sel} href={first_link.get_attribute('href')}")
                         break
+                    first_link = None
                 except Exception:
                     continue
             if first_link:
@@ -475,6 +488,12 @@ def main() -> int:
     driver = None
     try:
         driver = create_driver()
+        # 후보 셀렉터 fallback 반복으로 매번 implicit_wait 가 누적되지 않도록
+        # 캡쳐 시에는 implicit_wait 를 최소화한다.
+        try:
+            driver.implicitly_wait(0)
+        except Exception:
+            pass
 
         if args.login:
             try_login(driver, out_dir)
