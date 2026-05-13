@@ -467,12 +467,22 @@ def click_first_product(driver):
         )
         if not cards:
             return False
-        first = cards[0]
-        if not _try_click(driver, first):
-            log("첫 번째 상품 클릭 실패", "DEBUG")
-            return False
-        wait_for_ready(driver, timeout_sec=int(os.getenv("DETAIL_READY_TIMEOUT_SEC", "15")))
-        return True
+        # stale 대응: 첫 카드 요소를 한 번 더 다시 찾아 클릭 시도
+        for attempt in range(int(os.getenv("CARD_CLICK_RETRY", "3"))):
+            try:
+                fresh = driver.find_elements(By.CSS_SELECTOR, SEL_PRODUCT_CARD)
+                if not fresh:
+                    time.sleep(0.4)
+                    continue
+                first = fresh[0]
+                if _try_click(driver, first):
+                    wait_for_ready(driver, timeout_sec=int(os.getenv("DETAIL_READY_TIMEOUT_SEC", "15")))
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.4)
+        log("첫 번째 상품 클릭 실패(재시도 한계)", "DEBUG")
+        return False
     except TimeoutException:
         return False
     except Exception as e:
@@ -507,29 +517,37 @@ def click_buy_and_open_size_list(driver) -> bool:
     sticky '구매하기' 클릭 → Drawer 등장 대기 → 사이즈 콤보박스 클릭으로 listbox 펼침.
     로그인이 안 된 상태에서는 confirm 모달이 떠 옵션 시트가 절대 안 뜨므로 False 반환.
     """
-    # 1) 구매하기 버튼이 visible 해질 때까지 polling
+    # 1) sticky CTA 가 React 로 re-render 되면 element 가 stale 되는 경우가 잦다.
+    #    polling 과 클릭을 한 루프에 묶어 stale 발생 시 즉시 재발견·재클릭한다.
     deadline = time.time() + int(os.getenv("WAIT_BUY_BUTTON_SEC", "15"))
-    btn = None
+    clicked = False
+    saw_button = False
     while time.time() < deadline:
         btn = _find_buy_button(driver)
         if btn:
+            saw_button = True
             try:
                 rect = driver.execute_script(
-                    "const r=arguments[0].getBoundingClientRect();return r.width*r.height;", btn
+                    "const r=arguments[0].getBoundingClientRect();"
+                    "return r.width*r.height;",
+                    btn,
                 )
-                if rect and rect > 0:
-                    break
             except Exception:
-                break
+                rect = 0
+            if rect and rect > 0:
+                if _try_click(driver, btn):
+                    clicked = True
+                    break
+                # 클릭 실패는 보통 stale. 잠시 후 element 재발견하여 다시 시도.
         time.sleep(0.4)
-    if not btn:
-        log("구매하기 버튼이 나타나지 않음", "WARNING")
-        _dump_failure(driver, "_", "buy_button_missing")
-        return False
 
-    if not _try_click(driver, btn):
-        log("구매하기 클릭 실패", "ERROR")
-        _dump_failure(driver, "_", "buy_button_click_failed")
+    if not clicked:
+        if not saw_button:
+            log("구매하기 버튼이 나타나지 않음", "WARNING")
+            _dump_failure(driver, "_", "buy_button_missing")
+        else:
+            log("구매하기 클릭 실패(stale 재시도 한계 초과)", "ERROR")
+            _dump_failure(driver, "_", "buy_button_click_failed")
         return False
 
     # 2) Drawer 등장 대기. 단, 로그인 confirm 모달이 떠 있으면 옵션 시트로 진행 불가.
