@@ -41,12 +41,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from stock_check.hyundai.stock_checker import (
-    HYUNDAI_HOME,
+    HYUNDAI_HOME as LEGACY_HYUNDAI_HOME,
     create_driver,
     safe_quit_driver,
     wait_for_ready,
 )
 
+
+# 리뉴얼된 더현대Hi(Next.js SPA) 기본 진입 URL. --entry-url 로 덮어쓸 수 있다.
+DEFAULT_ENTRY_URL = "https://hi.thehyundai.com/shop/main"
 
 BUY_BUTTON_HINT_TEXTS = ["구매하기", "바로구매", "BUY NOW", "구매 하기", "구매"]
 OPTION_LAYER_HINT_SELECTORS = [
@@ -56,6 +59,9 @@ OPTION_LAYER_HINT_SELECTORS = [
     ".product-option-layer",
     "[class*='opt-select']",
     "[class*='option-layer']",
+    "[class*='OptionLayer']",
+    "[class*='OptionSheet']",
+    "[role='dialog']",
 ]
 
 
@@ -148,38 +154,82 @@ def try_login(driver, out_dir: Path) -> bool:
         return False
 
 
-def do_search(driver, keyword: str, out_dir: Path) -> bool:
-    log(f"검색: {keyword}")
+def _find_visible(driver, locators, timeout: float = 4.0):
+    """locators=[(By, selector), ...] 중 처음으로 표시되는 요소를 반환."""
+    for by, sel in locators:
+        try:
+            el = WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((by, sel))
+            )
+            if el and el.is_displayed():
+                return el, (by, sel)
+        except Exception:
+            continue
+    return None, None
+
+
+def _click_search_icon(driver) -> bool:
+    """리뉴얼된 hi.thehyundai.com 헤더의 '검색' IconButton 을 클릭한다."""
+    locators = [
+        (By.CSS_SELECTOR, "button[aria-label='검색']"),
+        (By.CSS_SELECTOR, "a[aria-label='검색']"),
+        (By.CSS_SELECTOR, "header [aria-label='검색']"),
+        (By.CSS_SELECTOR, "[class*='Icon_search']"),
+        (By.XPATH, "//button[contains(@aria-label,'검색')]"),
+    ]
+    el, hit = _find_visible(driver, locators, timeout=3.0)
+    if not el:
+        return False
     try:
-        driver.get(HYUNDAI_HOME)
+        driver.execute_script(
+            "arguments[0].scrollIntoView({behavior:'instant',block:'center'});", el
+        )
+        driver.execute_script("arguments[0].click();", el)
+        log(f"  검색 아이콘 클릭 OK ({hit})")
+        return True
+    except Exception:
+        return False
+
+
+def do_search(driver, entry_url: str, keyword: str, out_dir: Path) -> bool:
+    log(f"검색: {keyword} (entry={entry_url})")
+    try:
+        driver.get(entry_url)
         wait_for_ready(driver, timeout_sec=10)
+        # SPA 렌더링 대기
+        time.sleep(1.0)
         dump_page(driver, out_dir, "01_home")
 
-        # 기존 셀렉터 + 신규 후보들을 차례로 시도
-        candidates = [
+        input_candidates = [
             (By.ID, "cs-token-input"),
             (By.CSS_SELECTOR, "input[type='search']"),
             (By.CSS_SELECTOR, "input[placeholder*='검색']"),
             (By.CSS_SELECTOR, "input[name='searchTerm']"),
+            (By.CSS_SELECTOR, "input[name*='search']"),
+            (By.CSS_SELECTOR, "input[id*='search']"),
             (By.CSS_SELECTOR, "input.search-input"),
             (By.CSS_SELECTOR, "[data-testid*='search'] input"),
+            (By.CSS_SELECTOR, "[class*='SearchBar'] input"),
+            (By.CSS_SELECTOR, "[class*='Search_'] input"),
         ]
 
-        box = None
-        for by, sel in candidates:
-            try:
-                box = WebDriverWait(driver, 4).until(
-                    EC.presence_of_element_located((by, sel))
-                )
-                if box:
-                    log(f"  검색창 발견: {by}={sel}")
-                    break
-            except Exception:
-                continue
+        # 1) 곧장 input 이 떠 있으면 사용
+        box, hit = _find_visible(driver, input_candidates, timeout=3.0)
+
+        # 2) 없으면 검색 아이콘 버튼 클릭 후 다시 탐색
         if not box:
-            log("  ! 검색창을 못 찾음 - 01_home.html 로 확인 필요")
+            log("  곧바로 보이는 검색 input 없음 → 검색 아이콘 클릭 시도")
+            if _click_search_icon(driver):
+                time.sleep(1.0)
+                wait_for_ready(driver, timeout_sec=6)
+                dump_page(driver, out_dir, "01b_after_search_icon")
+                box, hit = _find_visible(driver, input_candidates, timeout=6.0)
+
+        if not box:
+            log("  ! 검색창을 못 찾음 - 01_home.html / 01b_after_search_icon.html 확인 필요")
             return False
 
+        log(f"  검색창 발견: {hit}")
         try:
             box.clear()
         except Exception:
@@ -187,6 +237,7 @@ def do_search(driver, keyword: str, out_dir: Path) -> bool:
         box.send_keys(keyword)
         box.send_keys(Keys.RETURN)
         wait_for_ready(driver, timeout_sec=10)
+        time.sleep(1.2)  # 결과 SPA 렌더링 대기
         dump_page(driver, out_dir, "02_search_result")
         return True
     except Exception as exc:
@@ -204,6 +255,12 @@ def open_first_product(driver, out_dir: Path) -> bool:
         "li.product",
         "[class*='product-item']",
         "[class*='ProductCard']",
+        "[class*='ProductItem']",
+        "[class*='GoodsCard']",
+        "[class*='GoodsItem']",
+        "a[href*='/shop/goods']",
+        "a[href*='/goods']",
+        "a[href*='/product']",
     ]
 
     found = []
@@ -392,13 +449,28 @@ def main() -> int:
         default=None,
         help="산출물 디렉터리(기본: /tmp/hyundai_capture/<timestamp>)",
     )
+    parser.add_argument(
+        "--entry-url",
+        default=os.getenv("HYUNDAI_ENTRY_URL", DEFAULT_ENTRY_URL),
+        help=f"진입 URL (기본: {DEFAULT_ENTRY_URL}, 환경변수 HYUNDAI_ENTRY_URL 로도 지정 가능)",
+    )
     parser.add_argument("--login", action="store_true", help="HYUNDAI_LOGIN_ID/PW로 사전 로그인 시도")
+    parser.add_argument(
+        "--ua",
+        default=None,
+        help="User-Agent 오버라이드 (예: 모바일 UA). 지정 시 CHROME_UA 환경변수로 주입",
+    )
     args = parser.parse_args()
+
+    if args.ua:
+        os.environ["CHROME_UA"] = args.ua
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = Path(args.out) if args.out else Path("/tmp/hyundai_capture") / ts
     out_dir.mkdir(parents=True, exist_ok=True)
     log(f"산출물 디렉터리: {out_dir}")
+    log(f"legacy HYUNDAI_HOME(참고용): {LEGACY_HYUNDAI_HOME}")
+    log(f"이번 entry URL: {args.entry_url}")
 
     driver = None
     try:
@@ -407,7 +479,7 @@ def main() -> int:
         if args.login:
             try_login(driver, out_dir)
 
-        if not do_search(driver, args.keyword, out_dir):
+        if not do_search(driver, args.entry_url, args.keyword, out_dir):
             log("검색 실패 — 산출물만 남기고 종료")
             return 2
 
