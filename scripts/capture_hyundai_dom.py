@@ -554,11 +554,44 @@ def main() -> int:
     )
     parser.add_argument("--login", action="store_true", help="HYUNDAI_LOGIN_ID/PW로 사전 로그인 시도")
     parser.add_argument(
+        "--credentials-file",
+        default=None,
+        help="HYUNDAI_LOGIN_ID/PW 가 들어있는 .env 형식 파일 경로. "
+             "지정 안 하면 stock_check/shared/.env 와 현재 디렉터리 .env 가 자동 로드됨.",
+    )
+    parser.add_argument(
+        "--no-headless",
+        action="store_true",
+        help="실제 Chrome 창을 띄워 동작을 시각적으로 확인 (CHROME_HEADLESS_MODE=off 와 동등)",
+    )
+    parser.add_argument(
+        "--dwell",
+        type=int,
+        default=0,
+        help="--no-headless 시, 종료 전 N초간 창을 유지 (기본 0). 화면을 더 보고 싶을 때 사용",
+    )
+    parser.add_argument(
         "--ua",
         default=None,
         help="User-Agent 오버라이드 (예: 모바일 UA). 지정 시 CHROME_UA 환경변수로 주입",
     )
     args = parser.parse_args()
+
+    if args.credentials_file:
+        try:
+            from dotenv import load_dotenv as _load_env
+            cred_path = Path(args.credentials_file).expanduser()
+            if not cred_path.exists():
+                log(f"  ! credentials-file 이 없습니다: {cred_path}")
+            else:
+                _load_env(str(cred_path), override=True)
+                log(f"credentials-file 로드: {cred_path}")
+        except Exception as exc:
+            log(f"  ! credentials-file 로드 실패: {exc}")
+
+    if args.no_headless:
+        os.environ["CHROME_HEADLESS_MODE"] = "off"
+        log("CHROME_HEADLESS_MODE=off (실제 브라우저 창 표시)")
 
     if args.ua:
         os.environ["CHROME_UA"] = args.ua
@@ -601,6 +634,12 @@ def main() -> int:
         save_text(out_dir / "fatal_error.txt", traceback.format_exc())
         return 1
     finally:
+        if args.dwell and args.dwell > 0 and driver is not None:
+            log(f"창을 {args.dwell}초간 유지합니다 (--dwell)")
+            try:
+                time.sleep(args.dwell)
+            except KeyboardInterrupt:
+                pass
         safe_quit_driver(driver)
 
 

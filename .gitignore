@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Secrets / 환경설정 (절대 커밋 금지)
+.env
+.env.*
+!.env.example
+stock_check/shared/.env
+stock_check/shared/access_key.txt
+
+# 캡쳐/디버깅 산출물
+_capture/
+/tmp/hyundai_capture/
+*.tgz
+
+# 사이트별 런타임 산출물 (재고/이력)
+stock_check/hyundai/logs/
+stock_check/cultizm/logs/
+stock_check/hyundai/recent_results.json
+stock_check/cultizm/recent_results.json
+stock_check/hyundai/telegram_history.json
+stock_check/cultizm/telegram_history.json
+stock_check/hyundai/email_history.json
+stock_check/cultizm/email_history.json
+stock_check/hyundai/stock_checker.lock
+stock_check/cultizm/stock_checker.lock
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/

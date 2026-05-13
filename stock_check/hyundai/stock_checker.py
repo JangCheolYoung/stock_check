@@ -180,9 +180,12 @@ def create_driver():
     chrome_options = Options()
 
     # headless 안정 모드
-    # (크롬 최신이면 --headless=new 권장)
+    # CHROME_HEADLESS_MODE: "new"(기본) | "old" | "off"/"0"/"false"/"no"
+    # off 로 두면 실제 브라우저 창을 띄워 동작을 눈으로 확인할 수 있다(디버깅용).
     headless_mode = os.getenv("CHROME_HEADLESS_MODE", "new").lower()
-    if headless_mode == "new":
+    if headless_mode in ("off", "0", "false", "no", "none"):
+        pass  # headless 끔
+    elif headless_mode == "new":
         chrome_options.add_argument("--headless=new")
     else:
         chrome_options.add_argument("--headless")
