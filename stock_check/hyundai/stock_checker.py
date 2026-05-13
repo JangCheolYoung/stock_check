@@ -321,6 +321,11 @@ SEL_SIZE_LISTBOX = "ul#select-listbox"
 SEL_SIZE_OPTION = "li.Select_option___q_RU, li[role='option']"
 SEL_LOGIN_REQUIRED_HINT = "취소"  # 로그인 confirm 모달 본문
 
+# H.Point 통합회원 로그인 페이지
+HYUNDAI_LOGIN_URL = os.getenv("HYUNDAI_LOGIN_URL", "https://hi.thehyundai.com/login")
+SEL_LOGIN_ID = "input[name='loginId']"
+SEL_LOGIN_PW = "input[name='password']"
+
 # 사이즈 옵션 행 1개의 텍스트에서 수량 추출
 _QTY_RE = re.compile(r"\[남은수량\s*:\s*(\d+)\]")
 _SOLDOUT_RE = re.compile(r"\[\s*품절\s*\]")
@@ -405,6 +410,91 @@ def _try_click(driver, el) -> bool:
             continue
     log("클릭 시도 모두 실패 → " + " | ".join(last_errs), "DEBUG")
     return False
+
+
+def ensure_logged_in(driver) -> bool:
+    """
+    HYUNDAI_LOGIN_ID / HYUNDAI_LOGIN_PW 환경변수를 사용해 H.Point 통합회원
+    로그인을 시도. 자격증명이 없으면 silently skip (False 반환).
+
+    반환:
+      True  — 로그인 성공 (URL 이 /login 에서 벗어남)
+      False — 자격증명 없음 / 로그인 실패. 호출자는 비회원 흐름으로 진행.
+    """
+    user = os.getenv("HYUNDAI_LOGIN_ID")
+    pw = os.getenv("HYUNDAI_LOGIN_PW")
+    if not user or not pw:
+        log("HYUNDAI_LOGIN_ID/PW 미설정 → 로그인 스킵", "INFO")
+        return False
+
+    try:
+        driver.get(HYUNDAI_LOGIN_URL)
+        wait_for_ready(driver, timeout_sec=10)
+        time.sleep(float(os.getenv("HYDRATION_SLEEP_SEC", "2.0")))
+
+        # 이미 로그인 상태라면 /login 에서 다른 페이지로 자동 리다이렉트됨
+        if "/login" not in (driver.current_url or ""):
+            log("이미 로그인 상태로 보임", "INFO")
+            return True
+
+        try:
+            id_el = WebDriverWait(driver, int(os.getenv("WAIT_LOGIN_INPUT_SEC", "10"))).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, SEL_LOGIN_ID))
+            )
+            pw_el = driver.find_element(By.CSS_SELECTOR, SEL_LOGIN_PW)
+        except (TimeoutException, Exception) as exc:
+            log(f"로그인 입력란을 찾지 못함: {exc}", "ERROR")
+            _dump_failure(driver, "_", "login_input_missing")
+            return False
+
+        try:
+            id_el.clear()
+        except Exception:
+            pass
+        id_el.send_keys(user)
+        try:
+            pw_el.clear()
+        except Exception:
+            pass
+        pw_el.send_keys(pw)
+
+        # '로그인' 텍스트의 primary 버튼 클릭 (페이지에 같은 클래스의 다른
+        # primary 버튼이 있을 수 있어 텍스트로 식별).
+        login_btn = None
+        try:
+            for el in driver.find_elements(By.XPATH, "//button[normalize-space(.)='로그인']"):
+                if el.is_displayed():
+                    login_btn = el
+                    break
+        except Exception:
+            login_btn = None
+        if not login_btn:
+            log("로그인 버튼을 찾지 못함", "ERROR")
+            _dump_failure(driver, "_", "login_button_missing")
+            return False
+
+        if not _try_click(driver, login_btn):
+            log("로그인 버튼 클릭 실패", "ERROR")
+            _dump_failure(driver, "_", "login_button_click_failed")
+            return False
+
+        # 로그인 완료 대기 — URL 이 /login 을 벗어나면 성공으로 판정
+        deadline = time.time() + int(os.getenv("WAIT_LOGIN_SEC", "20"))
+        while time.time() < deadline:
+            cur = driver.current_url or ""
+            if "/login" not in cur:
+                log(f"로그인 성공 (url={cur})", "SUCCESS")
+                return True
+            time.sleep(0.5)
+
+        log(f"로그인 timeout — url 이 여전히 /login (url={driver.current_url})", "WARNING")
+        _dump_failure(driver, "_", "login_timeout")
+        return False
+
+    except Exception as exc:
+        log(f"로그인 흐름 예외: {exc}", "ERROR")
+        _dump_failure(driver, "_", "login_exception")
+        return False
 
 
 def search_product(driver, keyword):
@@ -816,6 +906,10 @@ def check_single_stock(target):
     try:
         driver = create_driver()
 
+        # 0) 사전 로그인 (HYUNDAI_LOGIN_ID/PW 가 설정돼 있을 때만).
+        #    실패해도 검색은 진행 — 비회원 상태에서는 옵션 시트가 안 떠 OUT_OF_STOCK 으로 분기.
+        ensure_logged_in(driver)
+
         # 1) 검색 (재시도)
         searched = False
         for i in range(step_retries + 1):
@@ -825,6 +919,7 @@ def check_single_stock(target):
             # 검색 실패 시 드라이버를 새로 만들어 재시도(세션 꼬임 방지)
             safe_quit_driver(driver)
             driver = create_driver()
+            ensure_logged_in(driver)  # 새 driver 라 세션이 비어있으니 재로그인
             time.sleep(0.5)
 
         if not searched:
