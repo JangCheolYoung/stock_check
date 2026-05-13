@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Tuple
 
-from settings import get_site_dir
+from stock_check.shared.settings import get_site_dir
 
 
 @dataclass

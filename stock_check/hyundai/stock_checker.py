@@ -43,6 +43,7 @@ from selenium.common.exceptions import TimeoutException
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(PROJECT_ROOT))
 from stock_check.shared.email_utils import send_stock_alert, send_system_alert
+from stock_check.shared.alert_policy import AlertPolicy
 
 # 하위호환: 일부 배포본에서 StockStatus 참조 코드가 남아 있어 NameError가 발생하는 경우 방지
 try:
@@ -316,6 +317,32 @@ def _wait_clickable(driver, css: str, timeout: int = 10):
     )
 
 
+def _dump_failure(driver, keyword: str, tag: str) -> None:
+    """검색/구매/옵션 단계 실패 시 디버그용 page_source/스크린샷을 저장."""
+    if os.getenv("HYUNDAI_DEBUG_DUMP", "true").lower() in ("0", "false", "no", "off"):
+        return
+    try:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_kw = "".join(c if c.isalnum() else "_" for c in keyword)[:40]
+        out_dir = Path(LOG_DIR) / "failures" / f"{ts}_{safe_kw}_{tag}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            (out_dir / "url.txt").write_text(driver.current_url or "", encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            (out_dir / "page.html").write_text(driver.page_source or "", encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            driver.save_screenshot(str(out_dir / "screen.png"))
+        except Exception:
+            pass
+        log(f"실패 덤프: {out_dir}", "WARNING")
+    except Exception as exc:
+        log(f"실패 덤프 자체가 실패: {exc}", "DEBUG")
+
+
 def _try_click(driver, el) -> bool:
     """selenium native click → JS click → MouseEvent dispatch 폴백."""
     try:
@@ -352,18 +379,20 @@ def search_product(driver, keyword):
         log(f"{keyword} 검색 시작", "DEBUG")
         driver.get(HYUNDAI_HOME)
         wait_for_ready(driver, timeout_sec=int(os.getenv("READY_TIMEOUT_SEC", "10")))
-        time.sleep(0.6)  # SPA hydration
+        time.sleep(float(os.getenv("HYDRATION_SLEEP_SEC", "2.0")))  # SPA hydration
 
         # 1) 검색 아이콘 클릭
         try:
-            icon = _wait_clickable(driver, SEL_SEARCH_ICON, timeout=int(os.getenv("WAIT_SEARCH_ICON_SEC", "10")))
+            icon = _wait_clickable(driver, SEL_SEARCH_ICON, timeout=int(os.getenv("WAIT_SEARCH_ICON_SEC", "15")))
         except TimeoutException:
-            log(f"검색 아이콘을 찾지 못함 ({keyword})", "ERROR")
+            log(f"검색 아이콘을 찾지 못함 ({keyword}) url={driver.current_url}", "ERROR")
+            _dump_failure(driver, keyword, "search_icon_missing")
             return False
         if not _try_click(driver, icon):
             log(f"검색 아이콘 클릭 실패 ({keyword})", "ERROR")
+            _dump_failure(driver, keyword, "search_icon_click_failed")
             return False
-        time.sleep(0.6)
+        time.sleep(float(os.getenv("HYDRATION_SLEEP_SEC", "1.0")))
         wait_for_ready(driver, timeout_sec=8)
 
         # 2) 검색 입력창
