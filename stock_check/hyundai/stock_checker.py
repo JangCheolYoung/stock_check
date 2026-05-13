@@ -26,6 +26,13 @@ from datetime import datetime
 import concurrent.futures
 import warnings
 warnings.filterwarnings("ignore", message="urllib3 .* chardet .* doesn't match a supported version")
+# macOS 기본 LibreSSL 2.8.3 환경에서 urllib3 v2 가 매번 출력하는 경고 묻기
+warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL")
+try:
+    from urllib3.exceptions import NotOpenSSLWarning  # type: ignore
+    warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
+except Exception:
+    pass
 
 
 from dotenv import load_dotenv
@@ -379,6 +386,7 @@ def _try_click(driver, el) -> bool:
         time.sleep(0.15)
     except Exception:
         pass
+    last_errs = []
     for kind in ("native", "js", "dispatch"):
         try:
             if kind == "native":
@@ -392,8 +400,10 @@ def _try_click(driver, el) -> bool:
                     el,
                 )
             return True
-        except Exception:
+        except Exception as exc:
+            last_errs.append(f"{kind}: {type(exc).__name__}: {exc}")
             continue
+    log("클릭 시도 모두 실패 → " + " | ".join(last_errs), "DEBUG")
     return False
 
 
@@ -514,10 +524,12 @@ def click_buy_and_open_size_list(driver) -> bool:
         time.sleep(0.4)
     if not btn:
         log("구매하기 버튼이 나타나지 않음", "WARNING")
+        _dump_failure(driver, "_", "buy_button_missing")
         return False
 
     if not _try_click(driver, btn):
         log("구매하기 클릭 실패", "ERROR")
+        _dump_failure(driver, "_", "buy_button_click_failed")
         return False
 
     # 2) Drawer 등장 대기. 단, 로그인 confirm 모달이 떠 있으면 옵션 시트로 진행 불가.
@@ -527,6 +539,7 @@ def click_buy_and_open_size_list(driver) -> bool:
         )
     except TimeoutException:
         log("옵션 Drawer 가 등장하지 않음(로그인 필요 가능)", "WARNING")
+        _dump_failure(driver, "_", "drawer_missing")
         return False
 
     # confirm 모달(로그인 필요) 휴리스틱: Drawer 가 떠 있어도 사이즈 콤보박스가 없으면 confirm
@@ -536,6 +549,7 @@ def click_buy_and_open_size_list(driver) -> bool:
         )
     except TimeoutException:
         log("사이즈 콤보박스가 없음(로그인 필요/단일옵션 가능)", "WARNING")
+        _dump_failure(driver, "_", "size_combobox_missing")
         return False
 
     # 3) 콤보박스 클릭으로 listbox 펼침 (이미 펼쳐져 있으면 그대로 둠)
