@@ -178,27 +178,25 @@ def _find_visible(driver, locators, timeout: float = 4.0):
     return None, None
 
 
-def _click_search_icon(driver) -> bool:
-    """리뉴얼된 hi.thehyundai.com 헤더의 '검색' IconButton 을 클릭한다."""
+def _wait_and_click_search_icon(driver, timeout: float = 10.0) -> bool:
+    """리뉴얼된 hi.thehyundai.com 헤더의 '검색' IconButton 이 보일 때까지 기다린 뒤 클릭."""
     locators = [
+        (By.CSS_SELECTOR, "header button[aria-label='검색']"),
         (By.CSS_SELECTOR, "button[aria-label='검색']"),
         (By.CSS_SELECTOR, "a[aria-label='검색']"),
         (By.CSS_SELECTOR, "header [aria-label='검색']"),
         (By.CSS_SELECTOR, "[class*='Icon_search']"),
         (By.XPATH, "//button[contains(@aria-label,'검색')]"),
     ]
-    el, hit = _find_visible(driver, locators, timeout=3.0)
-    if not el:
-        return False
-    try:
-        driver.execute_script(
-            "arguments[0].scrollIntoView({behavior:'instant',block:'center'});", el
-        )
-        driver.execute_script("arguments[0].click();", el)
-        log(f"  검색 아이콘 클릭 OK ({hit})")
-        return True
-    except Exception:
-        return False
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        el, hit = _find_visible(driver, locators, timeout=1.0)
+        if el:
+            ok = _try_click(driver, el, f"검색아이콘 {hit}")
+            if ok:
+                return True
+        time.sleep(0.3)
+    return False
 
 
 def do_search(driver, entry_url: str, keyword: str, out_dir: Path) -> bool:
@@ -210,33 +208,30 @@ def do_search(driver, entry_url: str, keyword: str, out_dir: Path) -> bool:
         time.sleep(1.0)
         dump_page(driver, out_dir, "01_home")
 
+        # 새 사이트(hi.thehyundai.com) 는 헤더 검색 IconButton 을 눌러야
+        # 입력창이 등장한다. 검색 아이콘이 보일 때까지 polling 후 클릭.
+        if not _wait_and_click_search_icon(driver, timeout=10.0):
+            log("  ! 검색 아이콘을 찾지 못함 - 01_home.html 확인 필요")
+            return False
+
+        # 검색 아이콘 클릭 후 입력창이 떠 오를 시간을 충분히 준다.
+        time.sleep(1.0)
+        wait_for_ready(driver, timeout_sec=8)
+        dump_page(driver, out_dir, "01b_after_search_icon")
+
         input_candidates = [
-            (By.ID, "cs-token-input"),
             (By.CSS_SELECTOR, "input[type='search']"),
             (By.CSS_SELECTOR, "input[placeholder*='검색']"),
             (By.CSS_SELECTOR, "input[name='searchTerm']"),
             (By.CSS_SELECTOR, "input[name*='search']"),
             (By.CSS_SELECTOR, "input[id*='search']"),
-            (By.CSS_SELECTOR, "input.search-input"),
-            (By.CSS_SELECTOR, "[data-testid*='search'] input"),
             (By.CSS_SELECTOR, "[class*='SearchBar'] input"),
             (By.CSS_SELECTOR, "[class*='Search_'] input"),
+            (By.ID, "cs-token-input"),  # 구버전 호환
         ]
-
-        # 1) 곧장 input 이 떠 있으면 사용
-        box, hit = _find_visible(driver, input_candidates, timeout=3.0)
-
-        # 2) 없으면 검색 아이콘 버튼 클릭 후 다시 탐색
+        box, hit = _find_visible(driver, input_candidates, timeout=8.0)
         if not box:
-            log("  곧바로 보이는 검색 input 없음 → 검색 아이콘 클릭 시도")
-            if _click_search_icon(driver):
-                time.sleep(1.0)
-                wait_for_ready(driver, timeout_sec=6)
-                dump_page(driver, out_dir, "01b_after_search_icon")
-                box, hit = _find_visible(driver, input_candidates, timeout=6.0)
-
-        if not box:
-            log("  ! 검색창을 못 찾음 - 01_home.html / 01b_after_search_icon.html 확인 필요")
+            log("  ! 검색창을 못 찾음 - 01b_after_search_icon.html 확인 필요")
             return False
 
         log(f"  검색창 발견: {hit}")
@@ -328,12 +323,44 @@ def open_first_product(driver, out_dir: Path) -> bool:
         time.sleep(0.3)
         driver.execute_script("arguments[0].click();", first_link)
         wait_for_ready(driver, timeout_sec=15)
+
+        # SPA 하이드레이션으로 구매하기 sticky CTA 가 늦게 마운트되는 경우가 잦다.
+        # 본문(스크롤 가능 영역) + 구매하기 버튼이 보일 때까지 polling.
+        _wait_until_buy_button_visible(driver, timeout=15.0)
+
         dump_page(driver, out_dir, "03_product_detail")
         return True
     except Exception as exc:
         log(f"  ! 클릭 실패: {exc}")
         save_text(out_dir / "open_first_error.txt", traceback.format_exc())
         return False
+
+
+def _wait_until_buy_button_visible(driver, timeout: float = 15.0) -> bool:
+    """상세 페이지의 sticky 구매하기 버튼이 visible 해질 때까지 polling."""
+    deadline = time.time() + timeout
+    last_log = 0.0
+    while time.time() < deadline:
+        try:
+            el, label = _find_buy_button(driver)
+            if el:
+                # 화면에 보이는 위치까지 안정화되었는지 확인 (rect.height > 0)
+                rect = driver.execute_script(
+                    "const r=arguments[0].getBoundingClientRect();"
+                    "return {w:r.width,h:r.height};",
+                    el,
+                )
+                if rect and rect.get("h", 0) > 0 and rect.get("w", 0) > 0:
+                    log(f"  구매하기 버튼 visible 확인 ({label})")
+                    return True
+        except Exception:
+            pass
+        if time.time() - last_log > 3.0:
+            log("  ... 구매하기 버튼 등장 대기 중")
+            last_log = time.time()
+        time.sleep(0.4)
+    log("  ! 구매하기 버튼이 timeout 안에 등장하지 않음")
+    return False
 
 
 def dump_buy_button_candidates(driver, out_dir: Path) -> None:
