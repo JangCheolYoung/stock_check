@@ -62,6 +62,16 @@ OPTION_LAYER_HINT_SELECTORS = [
     "[class*='OptionLayer']",
     "[class*='OptionSheet']",
     "[role='dialog']",
+    "[aria-modal='true']",
+    "[data-state='open']",
+    "[class*='BottomSheet']",
+    "[class*='Bottom_sheet']",
+    "[class*='Drawer']",
+    "[class*='Sheet']",
+    "[class*='Modal']",
+    "body > div[id^='radix-']",
+    "body > div[class*='portal']",
+    "body > div[id^='headlessui-']",
 ]
 
 
@@ -376,64 +386,80 @@ def dump_buy_button_candidates(driver, out_dir: Path) -> None:
     save_text(out_dir / "04_buy_button_candidates.txt", "\n\n".join(lines) if lines else "(no candidates found)")
 
 
-def click_buy_and_dump_layer(driver, out_dir: Path) -> None:
-    log("구매하기 클릭 시도 + 옵션 레이어 dump")
-    clicked = False
-    # 텍스트 기반 클릭부터 시도
+def _try_click(driver, el, label: str) -> bool:
+    """selenium native click → JS click → native MouseEvent dispatch 순서로 클릭 시도."""
+    try:
+        driver.execute_script(
+            "arguments[0].scrollIntoView({behavior:'instant',block:'center'});", el
+        )
+        time.sleep(0.2)
+    except Exception:
+        pass
+
+    # 1) selenium native click
+    try:
+        el.click()
+        log(f"  native click OK ({label})")
+        return True
+    except Exception as exc:
+        log(f"  native click 실패 ({label}): {exc}")
+
+    # 2) JS click
+    try:
+        driver.execute_script("arguments[0].click();", el)
+        log(f"  js click OK ({label})")
+        return True
+    except Exception as exc:
+        log(f"  js click 실패 ({label}): {exc}")
+
+    # 3) MouseEvent dispatch (React 합성 이벤트 트리거용)
+    try:
+        driver.execute_script(
+            "arguments[0].dispatchEvent(new MouseEvent('click', "
+            "{bubbles:true, cancelable:true, view:window, button:0}));",
+            el,
+        )
+        log(f"  dispatch click OK ({label})")
+        return True
+    except Exception as exc:
+        log(f"  dispatch click 실패 ({label}): {exc}")
+
+    return False
+
+
+def _find_buy_button(driver):
+    # 1) hint 텍스트 기반 — 정확한 button/anchor 만 매칭(상위 div가 잡히지 않도록)
     for hint in BUY_BUTTON_HINT_TEXTS:
+        xpath = (
+            f"//button[normalize-space(.)='{hint}']"
+            f" | //a[normalize-space(.)='{hint}']"
+        )
         try:
-            xpath = (
-                f"//a[normalize-space(text())='{hint}']"
-                f" | //button[normalize-space(text())='{hint}']"
-                f" | //span[normalize-space(text())='{hint}']/.."
-            )
-            els = driver.find_elements(By.XPATH, xpath)
-            for el in els:
-                try:
-                    if not el.is_displayed():
-                        continue
-                    driver.execute_script(
-                        "arguments[0].scrollIntoView({behavior:'instant',block:'center'});", el
-                    )
-                    time.sleep(0.2)
-                    driver.execute_script("arguments[0].click();", el)
-                    clicked = True
-                    log(f"  클릭 성공 hint='{hint}'")
-                    break
-                except Exception:
-                    continue
-            if clicked:
-                break
+            for el in driver.find_elements(By.XPATH, xpath):
+                if el.is_displayed():
+                    return el, f"text='{hint}'"
         except Exception:
             continue
+    # 2) class 기반
+    for sel in [
+        "button.Button_primary__aI9o6.Button_large__EWW0F",  # 캡쳐 v3 에서 확인된 패턴
+        "[class*='DetailCTA_buttonArea'] button[class*='Button_primary']",
+        "[class*='ButtonArea_sticky'] button[class*='Button_primary']",
+        "a.btn-buy", "button.btn-buy", "[class*='btn-buy']", "[class*='btn-order']",
+    ]:
+        try:
+            for el in driver.find_elements(By.CSS_SELECTOR, sel):
+                if el.is_displayed() and (el.text or "").strip().startswith("구매"):
+                    return el, f"sel='{sel}'"
+        except Exception:
+            continue
+    return None, None
 
-    if not clicked:
-        log("  ! 텍스트 기반 구매하기 클릭 실패 — class 기반 fallback 시도")
-        for sel in ["a.btn-buy", "button.btn-buy", "[class*='btn-buy']", "[class*='btn-order']"]:
-            try:
-                els = driver.find_elements(By.CSS_SELECTOR, sel)
-                for el in els:
-                    if not el.is_displayed():
-                        continue
-                    try:
-                        driver.execute_script("arguments[0].click();", el)
-                        clicked = True
-                        log(f"  fallback 클릭 성공 selector='{sel}'")
-                        break
-                    except Exception:
-                        continue
-                if clicked:
-                    break
-            except Exception:
-                continue
 
-    # 클릭 직후 상태 1차 캡쳐 (로그인 페이지로 리다이렉트되었을 수도 있음)
-    time.sleep(1.2)
-    dump_page(driver, out_dir, "05_after_buy_click")
-
-    # 옵션 레이어 후보 dump
-    log("옵션 레이어 후보 dump")
+def _dump_option_layer(driver, out_dir: Path, suffix: str) -> int:
+    """현재 DOM 에서 옵션 레이어 후보들을 dump. 매치 개수 반환."""
     layer_lines: list[str] = []
+    total = 0
     for sel in OPTION_LAYER_HINT_SELECTORS:
         try:
             els = driver.find_elements(By.CSS_SELECTOR, sel)
@@ -442,16 +468,75 @@ def click_buy_and_dump_layer(driver, out_dir: Path) -> None:
                     outer = el.get_attribute("outerHTML") or ""
                     visible = el.is_displayed()
                     layer_lines.append(
-                        f"--- selector='{sel}' visible={visible} len={len(outer)}\n{outer[:4000]}"
+                        f"--- selector='{sel}' visible={visible} len={len(outer)}\n{outer[:5000]}"
                     )
+                    total += 1
                 except Exception:
                     continue
         except Exception:
             continue
     save_text(
-        out_dir / "06_option_layer_candidates.txt",
+        out_dir / f"06_option_layer_candidates_{suffix}.txt",
         "\n\n".join(layer_lines) if layer_lines else "(no layer candidates found)",
     )
+    return total
+
+
+def _dump_keyword_context(driver, out_dir: Path, suffix: str) -> None:
+    """'사이즈/SIZE/수량/선택' 텍스트 주변 컨텍스트를 직접 dump (Portal 마크업 탐지용)."""
+    js = r"""
+    const keys = ['사이즈','SIZE','수량','선택','품절','재고'];
+    const out = [];
+    const all = document.querySelectorAll('button, [role="button"], li, span, strong, div, label');
+    for (const el of all) {
+      const t = (el.innerText || el.textContent || '').trim();
+      if (!t || t.length > 60) continue;
+      for (const k of keys) {
+        if (t === k || t.startsWith(k) || t.endsWith(k)) {
+          const rect = el.getBoundingClientRect();
+          out.push({
+            tag: el.tagName.toLowerCase(),
+            cls: el.getAttribute('class') || '',
+            aria: el.getAttribute('aria-label') || '',
+            text: t.slice(0,120),
+            visible: rect.width>0 && rect.height>0,
+            outer: el.outerHTML.slice(0,800),
+          });
+          break;
+        }
+      }
+      if (out.length > 40) break;
+    }
+    return JSON.stringify(out, null, 2);
+    """
+    try:
+        result = driver.execute_script(js)
+    except Exception as exc:
+        result = f"(eval failed: {exc})"
+    save_text(out_dir / f"07_keyword_context_{suffix}.txt", result or "(empty)")
+
+
+def click_buy_and_dump_layer(driver, out_dir: Path) -> None:
+    log("구매하기 클릭 시도 + 옵션 레이어 dump")
+    el, label = _find_buy_button(driver)
+    if not el:
+        log("  ! 구매하기 버튼을 찾지 못함")
+        save_text(out_dir / "05_buy_click_skipped.txt", "no buy button matched")
+        return
+
+    log(f"  대상 버튼 매치: {label}")
+    clicked = _try_click(driver, el, label)
+    if not clicked:
+        log("  ! 모든 클릭 방식 실패")
+
+    # 폴링: 1s / 3s / 5s 시점에 스냅샷
+    for i, wait_s in enumerate([1.0, 2.0, 2.0], start=1):
+        time.sleep(wait_s)
+        tag = f"t{i}"
+        dump_page(driver, out_dir, f"05_after_buy_click_{tag}")
+        n = _dump_option_layer(driver, out_dir, tag)
+        _dump_keyword_context(driver, out_dir, tag)
+        log(f"  스냅샷 {tag}: 옵션 레이어 후보 {n}개")
 
 
 def main() -> int:
