@@ -13,6 +13,9 @@ class StockCheckResult:
     target_sizes: list[str] = field(default_factory=list)
     available_sizes: list[str] = field(default_factory=list)
     matched_sizes: list[str] = field(default_factory=list)
+    # 사이즈별 수량/품절 정보. 각 원소: {"size": str, "qty": int|None, "soldout": bool}
+    available_size_stocks: list[dict] = field(default_factory=list)
+    matched_size_stocks: list[dict] = field(default_factory=list)
     message: str = ""
     product_url: str = ""
     checked_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
@@ -39,13 +42,24 @@ class StockCheckResult:
         legacy_status = payload.get("status", "error")
         status = status_map.get(legacy_status, StockStatus.UNKNOWN_ERROR)
 
+        available_sizes = (
+            payload.get("available_sizes")
+            or payload.get("available_options")
+            or []
+        )
+        available_size_stocks = payload.get("available_size_stocks") or []
+        matched_size_stocks = payload.get("size_stocks") or []
+        matched_sizes = payload.get("sizes") or [m.get("size", "") for m in matched_size_stocks]
+
         return cls(
             site=site,
             product=payload.get("product", ""),
             status=status,
             target_sizes=target_sizes,
-            available_sizes=payload.get("available_sizes") or payload.get("available_options") or [],
-            matched_sizes=payload.get("sizes") or [],
+            available_sizes=available_sizes,
+            matched_sizes=matched_sizes,
+            available_size_stocks=available_size_stocks,
+            matched_size_stocks=matched_size_stocks,
             message=payload.get("message", legacy_status),
             product_url=payload.get("url", ""),
             error=payload.get("error", ""),
