@@ -295,7 +295,15 @@ def match_target_sizes(available_options: list[str], target_sizes: list[str]) ->
 HYUNDAI_HOME = os.getenv("HYUNDAI_ENTRY_URL", "https://hi.thehyundai.com/shop/main")
 
 # 셀렉터 상수 (캡쳐 결과 기반, 향후 사이트가 또 바뀌면 이 블록만 갱신)
-SEL_SEARCH_ICON = "header button[aria-label='검색']"
+# 메인(/shop/main) 헤더는 SearchButton_root 버튼, 상세/에러 페이지는 aria-label="검색"
+# IconButton 으로 헤더 디자인이 달라서 둘 다 폴백한다.
+SEL_SEARCH_ENTRIES = [
+    "button.SearchButton_root__exYZe",
+    "[class*='SearchButton_root']",
+    "header button[aria-label='검색']",
+    "header [aria-label='검색']",
+    "[class*='Icon_search']",
+]
 SEL_SEARCH_INPUT = "input[type='search']"
 SEL_PRODUCT_CARD = "a[href*='/product/']"
 SEL_BUY_BUTTON_TEXT = "구매하기"
@@ -315,6 +323,25 @@ def _wait_clickable(driver, css: str, timeout: int = 10):
     return WebDriverWait(driver, timeout).until(
         EC.element_to_be_clickable((By.CSS_SELECTOR, css))
     )
+
+
+def _wait_search_entry(driver, timeout: int = 15):
+    """SEL_SEARCH_ENTRIES 중 처음으로 visible 해지는 요소를 polling 으로 찾는다."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for sel in SEL_SEARCH_ENTRIES:
+            try:
+                els = driver.find_elements(By.CSS_SELECTOR, sel)
+            except Exception:
+                els = []
+            for el in els:
+                try:
+                    if el.is_displayed():
+                        return el, sel
+                except Exception:
+                    continue
+        time.sleep(0.4)
+    return None, None
 
 
 def _dump_failure(driver, keyword: str, tag: str) -> None:
@@ -381,15 +408,15 @@ def search_product(driver, keyword):
         wait_for_ready(driver, timeout_sec=int(os.getenv("READY_TIMEOUT_SEC", "10")))
         time.sleep(float(os.getenv("HYDRATION_SLEEP_SEC", "2.0")))  # SPA hydration
 
-        # 1) 검색 아이콘 클릭
-        try:
-            icon = _wait_clickable(driver, SEL_SEARCH_ICON, timeout=int(os.getenv("WAIT_SEARCH_ICON_SEC", "15")))
-        except TimeoutException:
-            log(f"검색 아이콘을 찾지 못함 ({keyword}) url={driver.current_url}", "ERROR")
+        # 1) 검색 진입 버튼 클릭 (페이지마다 헤더가 달라 다중 후보 폴백)
+        icon, hit_sel = _wait_search_entry(driver, timeout=int(os.getenv("WAIT_SEARCH_ICON_SEC", "15")))
+        if not icon:
+            log(f"검색 진입 버튼을 찾지 못함 ({keyword}) url={driver.current_url}", "ERROR")
             _dump_failure(driver, keyword, "search_icon_missing")
             return False
+        log(f"검색 진입 버튼 매치: {hit_sel}", "DEBUG")
         if not _try_click(driver, icon):
-            log(f"검색 아이콘 클릭 실패 ({keyword})", "ERROR")
+            log(f"검색 진입 버튼 클릭 실패 ({keyword})", "ERROR")
             _dump_failure(driver, keyword, "search_icon_click_failed")
             return False
         time.sleep(float(os.getenv("HYDRATION_SLEEP_SEC", "1.0")))
