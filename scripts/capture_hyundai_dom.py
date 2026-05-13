@@ -573,7 +573,7 @@ def click_buy_and_dump_layer(driver, out_dir: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="thehyundai.com DOM capture (one-shot)")
-    parser.add_argument("--keyword", required=True, help="검색 키워드 (상품명 또는 상품코드)")
+    parser.add_argument("--keyword", required=False, default="_", help="검색 키워드 (상품명 또는 상품코드). --just-pause 모드에서는 무시.")
     parser.add_argument(
         "--out",
         default=None,
@@ -583,6 +583,15 @@ def main() -> int:
         "--entry-url",
         default=os.getenv("HYUNDAI_ENTRY_URL", DEFAULT_ENTRY_URL),
         help=f"진입 URL (기본: {DEFAULT_ENTRY_URL}, 환경변수 HYUNDAI_ENTRY_URL 로도 지정 가능)",
+    )
+    parser.add_argument(
+        "--just-pause",
+        action="store_true",
+        help=(
+            "검색/상품 클릭/구매 단계를 모두 건너뛰고, 진입 URL 만 로드한 뒤 "
+            "manual-pause 로 사용자의 Enter 를 대기. 로그인 페이지 등 임의 페이지의 "
+            "DOM 캡쳐 용도."
+        ),
     )
     parser.add_argument("--login", action="store_true", help="HYUNDAI_LOGIN_ID/PW로 사전 로그인 시도")
     parser.add_argument(
@@ -657,16 +666,29 @@ def main() -> int:
         if args.login:
             try_login(driver, out_dir)
 
-        if not do_search(driver, args.entry_url, args.keyword, out_dir):
-            log("검색 실패 — 산출물만 남기고 종료")
-            return 2
+        if args.just_pause:
+            log(f"--just-pause: {args.entry_url} 진입만 수행하고 Enter 대기")
+            try:
+                driver.get(args.entry_url)
+                wait_for_ready(driver, timeout_sec=10)
+                time.sleep(1.0)
+                dump_page(driver, out_dir, "01_entry")
+            except Exception as exc:
+                log(f"  ! 진입 실패: {exc}")
+                save_text(out_dir / "entry_error.txt", traceback.format_exc())
+            # 강제 manual_pause 처럼 진행
+            args.manual_pause = True
+        else:
+            if not do_search(driver, args.entry_url, args.keyword, out_dir):
+                log("검색 실패 — 산출물만 남기고 종료")
+                return 2
 
-        if not open_first_product(driver, out_dir):
-            log("상세 진입 실패 — 산출물만 남기고 종료")
-            return 3
+            if not open_first_product(driver, out_dir):
+                log("상세 진입 실패 — 산출물만 남기고 종료")
+                return 3
 
-        dump_buy_button_candidates(driver, out_dir)
-        click_buy_and_dump_layer(driver, out_dir)
+            dump_buy_button_candidates(driver, out_dir)
+            click_buy_and_dump_layer(driver, out_dir)
 
         if args.manual_pause:
             log("=" * 60)
