@@ -44,7 +44,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 
 # 공통 모듈 경로 추가
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -383,7 +383,12 @@ def _dump_failure(driver, keyword: str, tag: str) -> None:
 
 
 def _try_click(driver, el) -> bool:
-    """selenium native click → JS click → MouseEvent dispatch 폴백."""
+    """selenium native click → JS click → MouseEvent dispatch 폴백.
+
+    StaleElementReferenceException 은 React SPA 에서 자주 발생하지만 caller
+    가 polling 루프로 재발견·재시도하므로 로그를 남기지 않고 즉시 False 반환.
+    그 외 예외(클릭 인터셉트, not-interactable 등)는 type 이름만 한 줄 요약.
+    """
     try:
         driver.execute_script(
             "arguments[0].scrollIntoView({behavior:'instant',block:'center'});", el
@@ -391,7 +396,7 @@ def _try_click(driver, el) -> bool:
         time.sleep(0.15)
     except Exception:
         pass
-    last_errs = []
+    last_errs: list[str] = []
     for kind in ("native", "js", "dispatch"):
         try:
             if kind == "native":
@@ -405,10 +410,13 @@ def _try_click(driver, el) -> bool:
                     el,
                 )
             return True
+        except StaleElementReferenceException:
+            return False
         except Exception as exc:
-            last_errs.append(f"{kind}: {type(exc).__name__}: {exc}")
+            last_errs.append(f"{kind}:{type(exc).__name__}")
             continue
-    log("클릭 시도 모두 실패 → " + " | ".join(last_errs), "DEBUG")
+    if last_errs:
+        log("클릭 시도 모두 실패 → " + " | ".join(last_errs), "DEBUG")
     return False
 
 
