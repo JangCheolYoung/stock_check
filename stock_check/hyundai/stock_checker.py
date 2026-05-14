@@ -1033,12 +1033,16 @@ def main():
 
         log(f"검색 타겟: {len(targets)}개", "INFO")
 
-        # t4g.small 운영 정책: 단일 워커 고정 (코어 1개 사용)
+        # 워커 수: HYUNDAI_MAX_WORKERS (기본 1). 메모리/CPU 폭주 방지를 위해 1~4 로 클램프.
+        # 안내: Chrome 1 인스턴스당 약 300~500MB. 2 vCPU/4GB 환경에서는 2 가 안전 상한.
+        try:
+            requested = int(os.getenv("HYUNDAI_MAX_WORKERS", "1"))
+        except ValueError:
+            requested = 1
+        max_workers = max(1, min(requested, 4))
         if not check_system_resources():
-            log("리소스 체크 경고가 있지만 단일 워커 정책 유지", "WARNING")
-
-        max_workers = 1
-        log("워커 수 고정: 1", "INFO")
+            log(f"리소스 체크 경고 — 그대로 진행(max_workers={max_workers})", "WARNING")
+        log(f"워커 수: {max_workers} (env HYUNDAI_MAX_WORKERS={os.getenv('HYUNDAI_MAX_WORKERS', '미설정')})", "INFO")
 
         # 전체 타임아웃(초) - 기본 12분
         overall_timeout = int(os.getenv("OVERALL_TIMEOUT_SEC", "720"))
