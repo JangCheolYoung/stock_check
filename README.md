@@ -72,18 +72,30 @@ python -m stock_check.app.web_admin
 
 ### 1) 완전 재배포(초기화)
 
+**Ubuntu 22.04 / 24.04 LTS**
+
 ```bash
 cd /opt/stock_check
 sudo REPO_URL=<git_repository_url> BRANCH=main WEB_SECRET=<긴시크릿> ACCESS_KEY=<접속키> bash scripts/redeploy_from_scratch.sh
 ```
 
+**Rocky Linux 9 / RHEL 9 / AlmaLinux 9**
+
+```bash
+cd /opt/stock_check
+sudo REPO_URL=<git_repository_url> BRANCH=main WEB_SECRET=<긴시크릿> ACCESS_KEY=<접속키> \
+     HYUNDAI_LOGIN_ID=<id> HYUNDAI_LOGIN_PW=<pw> \
+     bash scripts/redeploy_rocky9.sh
+```
+
 - 기존 `/opt/stock_check`는 타임스탬프 백업 폴더로 이동
 - `/opt/stock_check` 재-clone
 - venv/의존성 설치
-- Chrome/Chromedriver 설치
+- Chrome/Chromedriver 설치 (Ubuntu .deb / Rocky .rpm)
 - systemd 서비스 생성/재시작
 - 기존 백업 경로의 `.env`(알림 설정: SMTP/수신메일/텔레그램 토큰·아이디) 자동 복원
 - `ACCESS_KEY`를 지정하지 않으면 기존 백업 경로의 키를 복원하고, 없으면 기본 키(`change-this-access-key`)를 생성
+- Rocky 9 스크립트는 `HYUNDAI_LOGIN_ID/PW` 를 env 로 받으면 `.env` 에 자동 기록
 
 ### 2) 코드 업데이트 배포(git pull + 테스트 + 재시작)
 
