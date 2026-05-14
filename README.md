@@ -253,3 +253,34 @@ sudo bash scripts/check_scheduler_health.sh
 
 `AlertPolicy() takes no arguments` 오류가 보이면, 보통 서버 파일이 최신으로 갱신되지 않은 상태입니다.
 위 두 명령을 실행한 뒤 `check_scheduler_health.sh`의 `[6]` 배포 파일 검사 결과를 확인하세요.
+
+## 헬스 모니터 (CPU/메모리/디스크 + 일일 리포트)
+
+`scripts/health_monitor.py` 가 두 가지 모드를 제공하고, `scripts/install_health_timers.sh` 가 systemd timer 두 개를 등록합니다.
+
+- **resource (기본 5분 주기)** — CPU/메모리/디스크 사용량이 임계치를 넘으면 텔레그램+이메일로 알림. 같은 종류는 60분 쿨다운으로 스팸 방지.
+- **daily (기본 매일 07:00 Asia/Seoul)** — 서비스 상태 + 자원 + 오늘 사이클 통계 1회 발송.
+
+설치:
+
+```bash
+sudo APP_DIR=/opt/stock_check RUN_USER=root bash scripts/install_health_timers.sh
+```
+
+옵션 환경변수(`.env`):
+
+```
+HEALTH_CPU_THRESHOLD=80
+HEALTH_MEM_THRESHOLD=80
+HEALTH_DISK_THRESHOLD=85
+HEALTH_RESOURCE_COOLDOWN_MIN=60
+```
+
+알림 채널은 기존 `.env` 의 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`, `SMTP_*` (또는 `NAVER_SMTP_*`) 와 `EMAIL_RECIPIENTS` 를 그대로 재사용합니다.
+
+직접 한 번 실행해 동작 확인:
+
+```bash
+sudo /opt/stock_check/.venv/bin/python /opt/stock_check/scripts/health_monitor.py --mode resource
+sudo /opt/stock_check/.venv/bin/python /opt/stock_check/scripts/health_monitor.py --mode daily
+```
