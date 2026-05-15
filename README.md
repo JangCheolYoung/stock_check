@@ -284,3 +284,26 @@ HEALTH_RESOURCE_COOLDOWN_MIN=60
 sudo /opt/stock_check/.venv/bin/python /opt/stock_check/scripts/health_monitor.py --mode resource
 sudo /opt/stock_check/.venv/bin/python /opt/stock_check/scripts/health_monitor.py --mode daily
 ```
+
+## 운영 헬퍼 — stockctl
+
+자주 쓰는 운영 명령(상태확인/수동실행/로그/알림초기화/ACK/터널/헬스)을 한 곳에 모은 래퍼입니다. 어디서 실행해도 PYTHONPATH/작업 디렉터리를 자동으로 맞춥니다.
+
+```bash
+# 전역 명령으로 등록(권장)
+sudo ln -s /opt/stock_check/scripts/stockctl.sh /usr/local/bin/stockctl
+
+stockctl help        # 전체 사용법
+stockctl status      # 서비스/타이머/터널/포트/최근 사이클 한눈에
+stockctl run         # 재고 확인 즉시 1회 수동 실행 (락 자동 해제)
+stockctl logs 100    # 오늘 hyundai 로그 마지막 100줄
+stockctl env         # .env 주요 값 마스킹 출력
+stockctl reset-alerts hyundai && stockctl run   # 알림 이력 초기화 후 재발송 테스트
+stockctl ack hyundai "hyundai|MNRROTW16020078001|ALL|IN_STOCK"
+stockctl acks        # 미ACK 알림 키 목록
+stockctl health daily      # 헬스 리포트 수동 발송
+stockctl tunnel-url        # cloudflared quick URL 을 .env 에 자동 반영 + admin 재시작
+stockctl update main       # git pull + pip + 테스트 + 재시작
+```
+
+`APP_DIR` 환경변수로 설치 경로를 바꿀 수 있습니다(기본 `/opt/stock_check`).
