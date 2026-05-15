@@ -810,7 +810,7 @@ def _format_size_with_qty(sizes, size_stocks):
     return ", ".join(parts)
 
 
-def send_telegram_alert(product, sizes, url, size_stocks=None):
+def send_telegram_alert(product, sizes, url, size_stocks=None, ack_link=None):
     """
     기존처럼 subprocess로 분리해도 되지만,
     안정성/관측성을 위해 여기서 직접 requests로 발송 (재시도 포함)
@@ -850,6 +850,8 @@ def send_telegram_alert(product, sizes, url, size_stocks=None):
 
         sizes_line = _format_size_with_qty(sizes, size_stocks)
         msg = f"🔔 재고 알림!\n\n상품: {product}\n사이즈: {sizes_line}\n\n{url}"
+        if ack_link:
+            msg += f"\n\n▶ 이 알림 그만 받기(ACK): {ack_link}"
 
         endpoint = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         ok = False
@@ -1137,13 +1139,21 @@ def main():
                     continue
 
                 try:
-                    if send_stock_alert("hyundai", product, sizes_for_alert, url, dedup_prefix=dedup_prefix):
+                    from stock_check.app.services.alert_token import build_ack_link
+                    ack_link = build_ack_link("hyundai", dedup_prefix)
+                except Exception:
+                    ack_link = None
+
+                try:
+                    if send_stock_alert("hyundai", product, sizes_for_alert, url,
+                                         dedup_prefix=dedup_prefix, ack_link=ack_link):
                         email_sent += 1
                 except Exception as e:
                     log(f"이메일 알림 실패: {product} | {e}", "ERROR")
 
                 try:
-                    if send_telegram_alert(product, sizes, url, size_stocks=size_stocks):
+                    if send_telegram_alert(product, sizes, url,
+                                            size_stocks=size_stocks, ack_link=ack_link):
                         telegram_sent += 1
                 except Exception as e:
                     log(f"텔레그램 알림 실패: {product} | {e}", "ERROR")
