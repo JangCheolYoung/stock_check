@@ -1,8 +1,10 @@
 import os
 from datetime import datetime, timezone
 from functools import wraps
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, render_template_string, request, session, url_for
 
 from stock_check.app.services.admin_service import AdminService, MonitorSettings, NotifierSettings
@@ -10,6 +12,19 @@ from stock_check.app.services.alert_token import verify_ack_token
 from stock_check.shared.alert_policy import AlertPolicy
 
 SCHEDULE_TIMEZONE = "Asia/Seoul"
+
+# .env 를 단일 소스로 강제 로드 (systemd Environment 보다 우선).
+# 알림 발송 측(stock_checker)과 검증 측(admin)이 동일한 STOCK_CHECK_WEB_SECRET
+# 으로 ACK 토큰을 서명/검증하도록 보장한다.
+_ENV_FILE = os.getenv("STOCK_CHECK_ENV_FILE")
+if _ENV_FILE and Path(_ENV_FILE).exists():
+    load_dotenv(_ENV_FILE, override=True)
+else:
+    _DEFAULT_ENV = Path(__file__).resolve().parents[2] / "stock_check" / "shared" / ".env"
+    if _DEFAULT_ENV.exists():
+        load_dotenv(_DEFAULT_ENV, override=True)
+    else:
+        load_dotenv(override=True)
 
 
 def create_app() -> Flask:
