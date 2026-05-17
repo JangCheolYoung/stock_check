@@ -274,9 +274,10 @@ HEALTH_CPU_THRESHOLD=80
 HEALTH_MEM_THRESHOLD=80
 HEALTH_DISK_THRESHOLD=85
 HEALTH_RESOURCE_COOLDOWN_MIN=60
+HEALTH_NOTIFY_CHANNELS=telegram        # 기본 telegram,email — 텔레그램만 쓰려면 telegram
 ```
 
-알림 채널은 기존 `.env` 의 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`, `SMTP_*` (또는 `NAVER_SMTP_*`) 와 `EMAIL_RECIPIENTS` 를 그대로 재사용합니다.
+알림 채널은 기존 `.env` 의 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`, `SMTP_*` (또는 `NAVER_SMTP_*`) 와 `EMAIL_RECIPIENTS` 를 그대로 재사용합니다. `HEALTH_NOTIFY_CHANNELS` 로 채널을 고를 수 있으며(기본 `telegram,email`), resource·daily 모두에 적용됩니다.
 
 직접 한 번 실행해 동작 확인:
 

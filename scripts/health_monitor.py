@@ -53,12 +53,29 @@ MEM_TH = float(os.getenv("HEALTH_MEM_THRESHOLD", "80"))
 DISK_TH = float(os.getenv("HEALTH_DISK_THRESHOLD", "85"))
 COOLDOWN_MIN = int(os.getenv("HEALTH_RESOURCE_COOLDOWN_MIN", "60"))
 
+# 알림 채널 선택. 기본 telegram,email. 텔레그램만: HEALTH_NOTIFY_CHANNELS=telegram
+_CHANNELS = {
+    c.strip().lower()
+    for c in os.getenv("HEALTH_NOTIFY_CHANNELS", "telegram,email").split(",")
+    if c.strip()
+}
+
 HOSTNAME = socket.gethostname()
+
+
+def _telegram_enabled() -> bool:
+    return "telegram" in _CHANNELS
+
+
+def _email_enabled() -> bool:
+    return "email" in _CHANNELS
 
 
 # ---------------------------------------------------------------- 발송 helper
 
 def telegram_send(text: str) -> bool:
+    if not _telegram_enabled():
+        return False
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat = os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat:
@@ -76,6 +93,8 @@ def telegram_send(text: str) -> bool:
 
 
 def email_send(subject: str, body: str) -> bool:
+    if not _email_enabled():
+        return False
     user = os.getenv("SMTP_USER") or os.getenv("NAVER_SMTP_USER")
     pwd = os.getenv("SMTP_PASSWORD") or os.getenv("NAVER_SMTP_PASSWORD")
     server = os.getenv("SMTP_SERVER") or os.getenv("NAVER_SMTP_SERVER", "smtp.naver.com")
