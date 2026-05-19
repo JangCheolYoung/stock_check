@@ -1094,6 +1094,16 @@ def main():
                     "last_message": r.get("error", "crawler error"),
                     "is_error": True,
                 })
+            elif status == StockStatus.OUT_OF_STOCK.value:
+                # 품절 감지 → 해당 상품의 IN_STOCK dedup 상태(ACK/카운터/마지막발송)
+                # 를 리셋. 재입고되면 새 이벤트로 알림이 다시 발송된다.
+                product = r.get("product", "")
+                if product:
+                    reset_key = alert_policy.make_dedup_key(
+                        product, "ALL", StockStatus.IN_STOCK.value
+                    )
+                    if alert_policy.clear(reset_key):
+                        log(f"{product} - 품절 감지 → 알림 상태 리셋(재입고 시 재알림)", "DEBUG")
 
         elapsed_time = time.time() - start_time
 

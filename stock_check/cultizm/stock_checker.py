@@ -977,6 +977,15 @@ def main():
                     "last_message": result.get("error", "crawler error"),
                     "is_error": True,
                 })
+            elif status == StockStatus.OUT_OF_STOCK.value:
+                # 품절 감지 → 재입고 시 재알림되도록 dedup 상태 리셋
+                product = result.get("product", "")
+                if product:
+                    reset_key = alert_policy.make_dedup_key(
+                        product, "ALL", StockStatus.IN_STOCK.value
+                    )
+                    if alert_policy.clear(reset_key):
+                        log(f"{product} - 품절 감지 → 알림 상태 리셋(재입고 시 재알림)", "DEBUG")
         
         elapsed_time = time.time() - start_time
         
