@@ -922,13 +922,16 @@ def main():
             return
         
         log(f"검색 타겟: {len(targets)}개", "INFO")
-        
-        # t4g.small 운영 정책: 단일 워커 고정 (코어 1개 사용)
-        if not check_system_resources():
-            log("리소스 체크 경고가 있지만 단일 워커 정책 유지", "WARNING")
 
-        max_workers = 1
-        log("단일 워커 고정 모드: 1", "INFO")
+        # 워커 수: CULTIZM_MAX_WORKERS (기본 1). 1~4 클램프.
+        try:
+            requested = int(os.getenv("CULTIZM_MAX_WORKERS", "1"))
+        except ValueError:
+            requested = 1
+        max_workers = max(1, min(requested, 4))
+        if not check_system_resources():
+            log(f"리소스 체크 경고 — 그대로 진행(max_workers={max_workers})", "WARNING")
+        log(f"워커 수: {max_workers} (env CULTIZM_MAX_WORKERS={os.getenv('CULTIZM_MAX_WORKERS', '미설정')})", "INFO")
         
         # 재고 확인 실행
         search_results = []
@@ -974,6 +977,15 @@ def main():
                     "last_message": result.get("error", "crawler error"),
                     "is_error": True,
                 })
+            elif status == StockStatus.OUT_OF_STOCK.value:
+                # 품절 감지 → 재입고 시 재알림되도록 dedup 상태 리셋
+                product = result.get("product", "")
+                if product:
+                    reset_key = alert_policy.make_dedup_key(
+                        product, "ALL", StockStatus.IN_STOCK.value
+                    )
+                    if alert_policy.clear(reset_key):
+                        log(f"{product} - 품절 감지 → 알림 상태 리셋(재입고 시 재알림)", "DEBUG")
         
         elapsed_time = time.time() - start_time
         

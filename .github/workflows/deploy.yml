@@ -1,0 +1,37 @@
+# 옵션 B: GitHub Actions self-hosted runner 를 통한 즉시 배포.
+#
+# 사내(Proxmox) 서버에 self-hosted runner 를 설치해 두면, main 브랜치 push 시
+# 이 워크플로가 그 서버에서 실행되어 update_deploy.sh 로 즉시 배포한다.
+# runner 는 GitHub 로 outbound long-poll 만 하므로 인바운드 개방이 필요 없다.
+#
+# runner 설치(서버에서, GitHub repo → Settings → Actions → Runners → New):
+#   mkdir -p ~/actions-runner && cd ~/actions-runner
+#   curl -o r.tar.gz -L <runner_download_url> && tar xzf r.tar.gz
+#   ./config.sh --url https://github.com/JangCheolYoung/stock_check --token <TOKEN> --labels stockcheck
+#   sudo ./svc.sh install && sudo ./svc.sh start
+#
+# 주의: APP_DIR(/opt/stock_check)와 runner 작업 폴더는 별개다. 이 잡은
+# checkout 하지 않고 서버에 이미 배포된 /opt/stock_check 의 스크립트를 호출한다.
+
+name: deploy
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, stockcheck]
+    steps:
+      - name: Run update_deploy on server
+        run: |
+          set -euo pipefail
+          APP_DIR="${APP_DIR:-/opt/stock_check}"
+          echo "[deploy] $APP_DIR 갱신 시작 (branch=main)"
+          sudo BRANCH=main bash "$APP_DIR/scripts/update_deploy.sh"
+          echo "[deploy] 완료: $(cd "$APP_DIR" && git rev-parse HEAD)"

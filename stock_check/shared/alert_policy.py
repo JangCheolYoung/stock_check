@@ -89,6 +89,19 @@ class AlertPolicy:
         self._save_json(self.state_file, state)
         return True
 
+    def clear(self, dedup_key: str) -> bool:
+        """해당 dedup_key 상태를 완전히 제거.
+
+        품절(OUT_OF_STOCK) 감지 시 호출하면 ACK/발송카운터/마지막발송시각이
+        모두 초기화되어, 재입고 시 새 이벤트로 알림이 다시 발송된다.
+        """
+        state = self._load_json(self.state_file, {})
+        if dedup_key in state:
+            del state[dedup_key]
+            self._save_json(self.state_file, state)
+            return True
+        return False
+
     def record_ops_status(self, monitor_id: str, payload: Dict):
         ops = self._load_json(self.ops_file, {})
         prev = ops.get(monitor_id, {})

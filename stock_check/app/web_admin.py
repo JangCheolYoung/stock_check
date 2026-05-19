@@ -1,13 +1,30 @@
 import os
 from datetime import datetime, timezone
 from functools import wraps
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+from dotenv import load_dotenv
+from flask import Flask, flash, redirect, render_template, render_template_string, request, session, url_for
 
 from stock_check.app.services.admin_service import AdminService, MonitorSettings, NotifierSettings
+from stock_check.app.services.alert_token import verify_ack_token
+from stock_check.shared.alert_policy import AlertPolicy
 
 SCHEDULE_TIMEZONE = "Asia/Seoul"
+
+# .env 를 단일 소스로 강제 로드 (systemd Environment 보다 우선).
+# 알림 발송 측(stock_checker)과 검증 측(admin)이 동일한 STOCK_CHECK_WEB_SECRET
+# 으로 ACK 토큰을 서명/검증하도록 보장한다.
+_ENV_FILE = os.getenv("STOCK_CHECK_ENV_FILE")
+if _ENV_FILE and Path(_ENV_FILE).exists():
+    load_dotenv(_ENV_FILE, override=True)
+else:
+    _DEFAULT_ENV = Path(__file__).resolve().parents[2] / "stock_check" / "shared" / ".env"
+    if _DEFAULT_ENV.exists():
+        load_dotenv(_DEFAULT_ENV, override=True)
+    else:
+        load_dotenv(override=True)
 
 
 def create_app() -> Flask:
@@ -44,6 +61,70 @@ def create_app() -> Flask:
                 first = info["candidates"][0] if info["candidates"] else {}
                 flash(f"디버그: key_file={first.get('path')} exists={first.get('exists')} value={first.get('masked')}", "error")
         return render_template("login.html")
+
+    @app.get("/ack")
+    def ack_alert_route():
+        """이메일/텔레그램 알림에서 클릭하는 ACK 링크.
+
+        ACCESS_KEY 로그인 게이트는 우회하고, URL 서명만으로 인증한다.
+        """
+        token = request.args.get("t", "")
+        result = verify_ack_token(token)
+        page = """
+        <!doctype html><html lang="ko"><head>
+          <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>{{ title }}</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; padding: 28px; line-height: 1.5; }
+            .card { max-width: 480px; margin: 0 auto; border:1px solid #ddd; border-radius: 10px; padding: 24px; }
+            h2 { margin-top: 0; }
+            code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+          </style>
+        </head><body>
+          <div class="card">
+            <h2>{{ heading }}</h2>
+            <p>{{ message|safe }}</p>
+          </div>
+        </body></html>
+        """
+        if not result:
+            return (
+                render_template_string(
+                    page,
+                    title="ACK 실패",
+                    heading="⚠️ 유효하지 않은 링크",
+                    message="만료되었거나 위조된 ACK 링크입니다.",
+                ),
+                400,
+            )
+        site, dedup_key = result
+        if site not in ("hyundai", "cultizm"):
+            return (
+                render_template_string(
+                    page,
+                    title="ACK 실패",
+                    heading="⚠️ 지원되지 않는 사이트",
+                    message=f"site={site}",
+                ),
+                400,
+            )
+        policy = AlertPolicy(site)
+        ok = policy.ack(dedup_key)
+        if ok:
+            heading = "✅ ACK 처리 완료"
+            msg = (
+                f"이후 같은 알림은 중단됩니다.<br>"
+                f"<small>site: <code>{site}</code><br>"
+                f"key: <code>{dedup_key}</code></small>"
+            )
+        else:
+            heading = "ℹ️ 처리할 항목이 없습니다"
+            msg = (
+                f"이미 ACK 되었거나 대상 키가 존재하지 않습니다.<br>"
+                f"<small>site: <code>{site}</code><br>"
+                f"key: <code>{dedup_key}</code></small>"
+            )
+        return render_template_string(page, title="ACK 결과", heading=heading, message=msg)
 
     @app.get("/debug/auth")
     def auth_debug():

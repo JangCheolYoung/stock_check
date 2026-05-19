@@ -253,3 +253,91 @@ sudo bash scripts/check_scheduler_health.sh
 
 `AlertPolicy() takes no arguments` 오류가 보이면, 보통 서버 파일이 최신으로 갱신되지 않은 상태입니다.
 위 두 명령을 실행한 뒤 `check_scheduler_health.sh`의 `[6]` 배포 파일 검사 결과를 확인하세요.
+
+## 헬스 모니터 (CPU/메모리/디스크 + 일일 리포트)
+
+`scripts/health_monitor.py` 가 두 가지 모드를 제공하고, `scripts/install_health_timers.sh` 가 systemd timer 두 개를 등록합니다.
+
+- **resource (기본 5분 주기)** — CPU/메모리/디스크 사용량이 임계치를 넘으면 텔레그램+이메일로 알림. 같은 종류는 60분 쿨다운으로 스팸 방지.
+- **daily (기본 매일 07:00 Asia/Seoul)** — 서비스 상태 + 자원 + 오늘 사이클 통계 1회 발송.
+
+설치:
+
+```bash
+sudo APP_DIR=/opt/stock_check RUN_USER=root bash scripts/install_health_timers.sh
+```
+
+옵션 환경변수(`.env`):
+
+```
+HEALTH_CPU_THRESHOLD=80
+HEALTH_MEM_THRESHOLD=80
+HEALTH_DISK_THRESHOLD=85
+HEALTH_RESOURCE_COOLDOWN_MIN=60
+HEALTH_NOTIFY_CHANNELS=telegram        # 기본 telegram,email — 텔레그램만 쓰려면 telegram
+```
+
+알림 채널은 기존 `.env` 의 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`, `SMTP_*` (또는 `NAVER_SMTP_*`) 와 `EMAIL_RECIPIENTS` 를 그대로 재사용합니다. `HEALTH_NOTIFY_CHANNELS` 로 채널을 고를 수 있으며(기본 `telegram,email`), resource·daily 모두에 적용됩니다.
+
+직접 한 번 실행해 동작 확인:
+
+```bash
+sudo /opt/stock_check/.venv/bin/python /opt/stock_check/scripts/health_monitor.py --mode resource
+sudo /opt/stock_check/.venv/bin/python /opt/stock_check/scripts/health_monitor.py --mode daily
+```
+
+## 운영 헬퍼 — stockctl
+
+자주 쓰는 운영 명령(상태확인/수동실행/로그/알림초기화/ACK/터널/헬스)을 한 곳에 모은 래퍼입니다. 어디서 실행해도 PYTHONPATH/작업 디렉터리를 자동으로 맞춥니다.
+
+```bash
+# 전역 명령으로 등록(권장)
+sudo ln -s /opt/stock_check/scripts/stockctl.sh /usr/local/bin/stockctl
+
+stockctl help        # 전체 사용법
+stockctl status      # 서비스/타이머/터널/포트/최근 사이클 한눈에
+stockctl run         # 재고 확인 즉시 1회 수동 실행 (락 자동 해제)
+stockctl logs 100    # 오늘 hyundai 로그 마지막 100줄
+stockctl env         # .env 주요 값 마스킹 출력
+stockctl reset-alerts hyundai && stockctl run   # 알림 이력 초기화 후 재발송 테스트
+stockctl ack hyundai "hyundai|MNRROTW16020078001|ALL|IN_STOCK"
+stockctl acks        # 미ACK 알림 키 목록
+stockctl health daily      # 헬스 리포트 수동 발송
+stockctl tunnel-url        # cloudflared quick URL 을 .env 에 자동 반영 + admin 재시작
+stockctl update main       # git pull + pip + 테스트 + 재시작
+```
+
+`APP_DIR` 환경변수로 설치 경로를 바꿀 수 있습니다(기본 `/opt/stock_check`).
+
+## 자동 배포 (사내망 / Proxmox)
+
+사내망은 인바운드가 막혀 GitHub webhook 직결이 어렵습니다. 서버가 outbound 로 GitHub 를 보는 두 방식 중 선택하세요. 둘 다 `update_deploy.sh` 를 호출하므로 **단위 테스트 실패 시 배포가 중단**됩니다(깨진 코드 미반영).
+
+### A) 폴링 자동배포 (기본 추천 — 인프라 추가 없음)
+
+systemd timer 가 N분마다 origin 의 대상 브랜치를 확인해 새 커밋이 있으면 배포.
+
+```bash
+sudo APP_DIR=/opt/stock_check BRANCH=main RUN_USER=root \
+     bash /opt/stock_check/scripts/install_autodeploy_timer.sh
+
+# 즉시 한 번
+sudo systemctl start stock-check-autodeploy.service
+journalctl -u stock-check-autodeploy.service -f
+```
+
+폴링 주기 변경: `INTERVAL=5min` 등으로 재설치. 최대 지연 = INTERVAL.
+
+### B) GitHub Actions self-hosted runner (즉시 배포)
+
+`.github/workflows/deploy.yml` 가 main push 시 사내 runner 에서 `update_deploy.sh` 를 실행합니다. runner 설치는 GitHub repo → Settings → Actions → Runners → New self-hosted runner 안내를 따르고, `--labels stockcheck` 로 등록한 뒤:
+
+```bash
+cd ~/actions-runner
+sudo ./svc.sh install
+sudo ./svc.sh start
+```
+
+runner 가 `sudo bash update_deploy.sh` 를 호출하므로 runner 실행 계정에 해당 sudo 무암호 권한이 필요할 수 있습니다(`visudo` 로 제한적 NOPASSWD 권장).
+
+> 두 방식은 동시에 켜도 무방하지만 보통 하나만 씁니다. 사내망 단순 운영이면 A, 실시간이 필요하면 B.

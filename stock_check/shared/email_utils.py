@@ -66,12 +66,13 @@ def record_email_sent(site_name, dedup_key):
     save_email_history(site_name, history)
 
 
-def send_stock_alert(site_name, product, sizes, url, dedup_prefix=None):
+def send_stock_alert(site_name, product, sizes, url, dedup_prefix=None, ack_link=None):
     try:
-        smtp_server = os.getenv("NAVER_SMTP_SERVER", "smtp.naver.com")
-        smtp_port = int(os.getenv("NAVER_SMTP_PORT", "587"))
-        smtp_user = os.getenv("NAVER_SMTP_USER")
-        smtp_password = os.getenv("NAVER_SMTP_PASSWORD")
+        # SMTP_* 와 NAVER_SMTP_* 둘 다 호환
+        smtp_server = os.getenv("SMTP_SERVER") or os.getenv("NAVER_SMTP_SERVER", "smtp.naver.com")
+        smtp_port = int(os.getenv("SMTP_PORT") or os.getenv("NAVER_SMTP_PORT") or "587")
+        smtp_user = os.getenv("SMTP_USER") or os.getenv("NAVER_SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD") or os.getenv("NAVER_SMTP_PASSWORD")
         recipients = [r.strip() for r in os.getenv("EMAIL_RECIPIENTS", "").split(",") if r.strip()]
 
         if not smtp_user or not smtp_password or not recipients:
@@ -89,13 +90,19 @@ def send_stock_alert(site_name, product, sizes, url, dedup_prefix=None):
             return False
 
         subject = f"[{site_name.upper()} 재입고 알림] {product} - {', '.join(sendable_sizes)} 재고 확인됨"
-        body = (
-            f"=== {site_name.upper()} 재고 확인 결과 ===\n\n"
-            f"상품: {product}\n"
-            f"사용가능 사이즈: {', '.join(sendable_sizes)}\n"
-            f"링크: {url}\n\n"
-            f"확인 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
+        body_lines = [
+            f"=== {site_name.upper()} 재고 확인 결과 ===",
+            "",
+            f"상품: {product}",
+            f"사용가능 사이즈: {', '.join(sendable_sizes)}",
+            f"링크: {url}",
+            "",
+            f"확인 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        ]
+        if ack_link:
+            body_lines.append("")
+            body_lines.append(f"▶ 이 알림 그만 받기(ACK): {ack_link}")
+        body = "\n".join(body_lines)
 
         msg = MIMEText(body, "plain", "utf-8")
         msg["Subject"] = subject

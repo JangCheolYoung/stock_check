@@ -810,7 +810,7 @@ def _format_size_with_qty(sizes, size_stocks):
     return ", ".join(parts)
 
 
-def send_telegram_alert(product, sizes, url, size_stocks=None):
+def send_telegram_alert(product, sizes, url, size_stocks=None, ack_link=None):
     """
     기존처럼 subprocess로 분리해도 되지만,
     안정성/관측성을 위해 여기서 직접 requests로 발송 (재시도 포함)
@@ -850,6 +850,8 @@ def send_telegram_alert(product, sizes, url, size_stocks=None):
 
         sizes_line = _format_size_with_qty(sizes, size_stocks)
         msg = f"🔔 재고 알림!\n\n상품: {product}\n사이즈: {sizes_line}\n\n{url}"
+        if ack_link:
+            msg += f"\n\n▶ 이 알림 그만 받기(ACK): {ack_link}"
 
         endpoint = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         ok = False
@@ -1033,12 +1035,16 @@ def main():
 
         log(f"검색 타겟: {len(targets)}개", "INFO")
 
-        # t4g.small 운영 정책: 단일 워커 고정 (코어 1개 사용)
+        # 워커 수: HYUNDAI_MAX_WORKERS (기본 1). 메모리/CPU 폭주 방지를 위해 1~4 로 클램프.
+        # 안내: Chrome 1 인스턴스당 약 300~500MB. 2 vCPU/4GB 환경에서는 2 가 안전 상한.
+        try:
+            requested = int(os.getenv("HYUNDAI_MAX_WORKERS", "1"))
+        except ValueError:
+            requested = 1
+        max_workers = max(1, min(requested, 4))
         if not check_system_resources():
-            log("리소스 체크 경고가 있지만 단일 워커 정책 유지", "WARNING")
-
-        max_workers = 1
-        log("워커 수 고정: 1", "INFO")
+            log(f"리소스 체크 경고 — 그대로 진행(max_workers={max_workers})", "WARNING")
+        log(f"워커 수: {max_workers} (env HYUNDAI_MAX_WORKERS={os.getenv('HYUNDAI_MAX_WORKERS', '미설정')})", "INFO")
 
         # 전체 타임아웃(초) - 기본 12분
         overall_timeout = int(os.getenv("OVERALL_TIMEOUT_SEC", "720"))
@@ -1088,6 +1094,16 @@ def main():
                     "last_message": r.get("error", "crawler error"),
                     "is_error": True,
                 })
+            elif status == StockStatus.OUT_OF_STOCK.value:
+                # 품절 감지 → 해당 상품의 IN_STOCK dedup 상태(ACK/카운터/마지막발송)
+                # 를 리셋. 재입고되면 새 이벤트로 알림이 다시 발송된다.
+                product = r.get("product", "")
+                if product:
+                    reset_key = alert_policy.make_dedup_key(
+                        product, "ALL", StockStatus.IN_STOCK.value
+                    )
+                    if alert_policy.clear(reset_key):
+                        log(f"{product} - 품절 감지 → 알림 상태 리셋(재입고 시 재알림)", "DEBUG")
 
         elapsed_time = time.time() - start_time
 
@@ -1133,13 +1149,21 @@ def main():
                     continue
 
                 try:
-                    if send_stock_alert("hyundai", product, sizes_for_alert, url, dedup_prefix=dedup_prefix):
+                    from stock_check.app.services.alert_token import build_ack_link
+                    ack_link = build_ack_link("hyundai", dedup_prefix)
+                except Exception:
+                    ack_link = None
+
+                try:
+                    if send_stock_alert("hyundai", product, sizes_for_alert, url,
+                                         dedup_prefix=dedup_prefix, ack_link=ack_link):
                         email_sent += 1
                 except Exception as e:
                     log(f"이메일 알림 실패: {product} | {e}", "ERROR")
 
                 try:
-                    if send_telegram_alert(product, sizes, url, size_stocks=size_stocks):
+                    if send_telegram_alert(product, sizes, url,
+                                            size_stocks=size_stocks, ack_link=ack_link):
                         telegram_sent += 1
                 except Exception as e:
                     log(f"텔레그램 알림 실패: {product} | {e}", "ERROR")
