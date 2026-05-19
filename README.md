@@ -308,3 +308,36 @@ stockctl update main       # git pull + pip + 테스트 + 재시작
 ```
 
 `APP_DIR` 환경변수로 설치 경로를 바꿀 수 있습니다(기본 `/opt/stock_check`).
+
+## 자동 배포 (사내망 / Proxmox)
+
+사내망은 인바운드가 막혀 GitHub webhook 직결이 어렵습니다. 서버가 outbound 로 GitHub 를 보는 두 방식 중 선택하세요. 둘 다 `update_deploy.sh` 를 호출하므로 **단위 테스트 실패 시 배포가 중단**됩니다(깨진 코드 미반영).
+
+### A) 폴링 자동배포 (기본 추천 — 인프라 추가 없음)
+
+systemd timer 가 N분마다 origin 의 대상 브랜치를 확인해 새 커밋이 있으면 배포.
+
+```bash
+sudo APP_DIR=/opt/stock_check BRANCH=main RUN_USER=root \
+     bash /opt/stock_check/scripts/install_autodeploy_timer.sh
+
+# 즉시 한 번
+sudo systemctl start stock-check-autodeploy.service
+journalctl -u stock-check-autodeploy.service -f
+```
+
+폴링 주기 변경: `INTERVAL=5min` 등으로 재설치. 최대 지연 = INTERVAL.
+
+### B) GitHub Actions self-hosted runner (즉시 배포)
+
+`.github/workflows/deploy.yml` 가 main push 시 사내 runner 에서 `update_deploy.sh` 를 실행합니다. runner 설치는 GitHub repo → Settings → Actions → Runners → New self-hosted runner 안내를 따르고, `--labels stockcheck` 로 등록한 뒤:
+
+```bash
+cd ~/actions-runner
+sudo ./svc.sh install
+sudo ./svc.sh start
+```
+
+runner 가 `sudo bash update_deploy.sh` 를 호출하므로 runner 실행 계정에 해당 sudo 무암호 권한이 필요할 수 있습니다(`visudo` 로 제한적 NOPASSWD 권장).
+
+> 두 방식은 동시에 켜도 무방하지만 보통 하나만 씁니다. 사내망 단순 운영이면 A, 실시간이 필요하면 B.
