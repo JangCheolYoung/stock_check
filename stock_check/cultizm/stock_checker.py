@@ -66,14 +66,23 @@ thread_local = threading.local()
 # 스레드 안전 로그
 log_lock = threading.Lock()
 
+def _now_local():
+    """로그 출력은 항상 Asia/Seoul 기준."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Seoul"))
+    except Exception:
+        return datetime.now()
+
+
 def get_log_file():
-    """날짜별 로그 파일 경로 반환"""
-    today = datetime.now().strftime("%Y-%m-%d")
+    """날짜별 로그 파일 경로 반환 (Asia/Seoul 기준)"""
+    today = _now_local().strftime("%Y-%m-%d")
     return os.path.join(LOG_DIR, f"log-{today}.txt")
 
 def log(message, level="INFO"):
     """직관적이고 구조화된 로그 기록"""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = _now_local().strftime("%Y-%m-%d %H:%M:%S")
     thread_id = threading.current_thread().ident
     
     # 레벨별 이모지 및 색상 구분
