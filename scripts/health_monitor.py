@@ -162,13 +162,32 @@ def service_status(unit: str) -> str:
         return "unknown"
 
 
-def today_cycle_stats() -> dict:
-    today_log = DATA_ROOT / "hyundai" / "logs" / f"log-{datetime.now().strftime('%Y-%m-%d')}.txt"
-    stats = {"cycles": 0, "errors": 0, "last_summary": ""}
-    if not today_log.exists():
+def recent_cycle_stats() -> dict:
+    """가장 최근 mtime 의 hyundai 로그 파일에서 사이클 통계를 집계.
+
+    이전엔 datetime.now() 로 '오늘 날짜' 파일을 찾았는데, scheduler 프로세스의
+    TZ(UTC) 와 health daily 서비스의 TZ(Asia/Seoul)가 어긋나면 KST 자정~오전
+    시간대에 파일을 못 찾는 문제가 있었음. 최신 mtime 기준으로 바꿔 TZ 차이에
+    무관하게 동작.
+    """
+    log_dir = DATA_ROOT / "hyundai" / "logs"
+    stats = {"cycles": 0, "errors": 0, "last_summary": "", "file": ""}
+    if not log_dir.is_dir():
         return stats
     try:
-        for line in today_log.read_text(encoding="utf-8", errors="ignore").splitlines():
+        files = sorted(
+            (p for p in log_dir.glob("log-*.txt") if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        return stats
+    if not files:
+        return stats
+    latest = files[0]
+    stats["file"] = latest.name
+    try:
+        for line in latest.read_text(encoding="utf-8", errors="ignore").splitlines():
             if "재고 확인 완료" in line and "소요시간" in line:
                 stats["cycles"] += 1
                 stats["last_summary"] = line[-220:]
@@ -177,6 +196,10 @@ def today_cycle_stats() -> dict:
     except Exception:
         pass
     return stats
+
+
+# 하위호환 alias (혹시 외부 호출이 있을 경우)
+today_cycle_stats = recent_cycle_stats
 
 
 # ---------------------------------------------------------------- modes
@@ -228,7 +251,7 @@ def mode_daily() -> int:
     r = collect_resources()
     admin = service_status("stock-check-admin")
     sched_timer = service_status("stock-check-scheduler.timer")
-    cycle = today_cycle_stats()
+    cycle = recent_cycle_stats()
 
     body = (
         f"📊 [{HOSTNAME}] stock-check 일일 헬스 리포트\n"
@@ -240,7 +263,7 @@ def mode_daily() -> int:
         f"- CPU      : {r['cpu_pct']:.1f}%\n"
         f"- 메모리   : {r['mem_pct']:.1f}% ({r['mem_used_mb']}/{r['mem_total_mb']}MB)\n"
         f"- 디스크 / : {r['disk_pct']:.1f}% ({r['disk_used_gb']}/{r['disk_total_gb']}GB)\n\n"
-        f"오늘 사이클: {cycle['cycles']}회 / 오류 라인 {cycle['errors']}건\n"
+        f"최근 로그({cycle.get('file', '?')}): {cycle['cycles']}회 / 오류 라인 {cycle['errors']}건\n"
         f"마지막 사이클 로그: {cycle['last_summary'] or '기록 없음'}\n"
     )
     ok_tg = telegram_send(body)
