@@ -63,6 +63,15 @@ _CHANNELS = {
 HOSTNAME = socket.gethostname()
 
 
+def _now_kst():
+    """리포트 표기는 항상 Asia/Seoul."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Seoul"))
+    except Exception:
+        return datetime.now()
+
+
 def _telegram_enabled() -> bool:
     return "telegram" in _CHANNELS
 
@@ -255,7 +264,7 @@ def mode_daily() -> int:
 
     body = (
         f"📊 [{HOSTNAME}] stock-check 일일 헬스 리포트\n"
-        f"기준 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        f"기준 시각: {_now_kst().strftime('%Y-%m-%d %H:%M:%S')} KST\n\n"
         f"서비스 상태:\n"
         f"- stock-check-admin       : {admin}\n"
         f"- stock-check-scheduler   : {sched_timer}\n\n"

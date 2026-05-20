@@ -89,12 +89,21 @@ log_lock = threading.Lock()
 # =========================
 # 로그
 # =========================
+def _now_local():
+    """로그 출력은 항상 Asia/Seoul 기준."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Seoul"))
+    except Exception:
+        return datetime.now()
+
+
 def get_log_file():
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = _now_local().strftime("%Y-%m-%d")
     return os.path.join(LOG_DIR, f"log-{today}.txt")
 
 def log(message, level="INFO"):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = _now_local().strftime("%Y-%m-%d %H:%M:%S")
 
     level_icons = {
         "INFO": "ℹ️",
