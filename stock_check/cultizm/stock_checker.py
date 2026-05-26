@@ -29,6 +29,7 @@ import concurrent.futures
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(PROJECT_ROOT))
 from stock_check.shared.email_utils import send_stock_alert, send_system_alert
+from stock_check.shared.alert_policy import AlertPolicy
 
 # 하위호환: 일부 배포본에서 StockStatus 참조 코드가 남아 있어 NameError가 발생하는 경우 방지
 try:
