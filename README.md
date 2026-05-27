@@ -65,6 +65,19 @@ python -m stock_check.app.web_admin
 - 접속키 입력 후 로그인
 - target CRUD 및 알림 설정 수정
 
+### Cultizm 단독 점검
+
+맥미니처럼 `chromedriver`를 고정 경로에 설치하지 않은 환경에서는 Selenium Manager가 드라이버를 자동 준비하도록 `CHROME_DRIVER_PATH`를 비워 실행합니다.
+
+```bash
+source .venv/bin/activate
+CHROME_BINARY="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+CHROME_DRIVER_PATH="" \
+python stock_check/cultizm/stock_checker.py
+```
+
+실행 흐름은 `stock_check/cultizm/targets.txt`를 읽고, 상품 검색 → 첫 상품 검증 → 사이즈 옵션 파싱 → 타겟 사이즈 정확 일치 매칭 순서로 동작합니다.
+
 
 ## 자동 배포 스크립트
 

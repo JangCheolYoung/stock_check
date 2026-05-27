@@ -7,6 +7,7 @@ stock_check/shared/email_utils.py
 
 import json
 import os
+import smtplib
 from pathlib import Path
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText

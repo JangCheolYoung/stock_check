@@ -161,7 +161,19 @@ def check_system_resources():
 # 크롬 드라이버 설정
 def create_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+
+    headless_mode = os.getenv("CHROME_HEADLESS_MODE", "new").lower()
+    if headless_mode in ("off", "0", "false", "no", "none"):
+        pass
+    elif headless_mode == "new":
+        chrome_options.add_argument("--headless=new")
+    else:
+        chrome_options.add_argument("--headless")
+
+    chrome_binary = os.getenv("CHROME_BINARY")
+    if chrome_binary:
+        chrome_options.binary_location = chrome_binary
+
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
@@ -173,11 +185,27 @@ def create_driver():
     chrome_options.add_argument("--window-size=1280,720")
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
-    driver_path = os.getenv("CHROME_DRIVER_PATH", "/usr/local/bin/chromedriver")
-    service = ChromeService(executable_path=driver_path)
+    driver_path = os.getenv("CHROME_DRIVER_PATH", "")
+    if driver_path and os.path.exists(driver_path):
+        service = ChromeService(executable_path=driver_path)
+    else:
+        service = ChromeService()
     driver = webdriver.Chrome(service=service, options=chrome_options)
+    driver.set_page_load_timeout(int(os.getenv("PAGELOAD_TIMEOUT_SEC", "25")))
+    driver.implicitly_wait(int(os.getenv("IMPLICIT_WAIT_SEC", "2")))
     
     return driver
+
+def safe_quit_driver(driver):
+    if not driver:
+        return
+    try:
+        driver.quit()
+    except:
+        try:
+            driver.service.process.kill()
+        except:
+            pass
 
 def safe_click(driver, element, max_attempts=2):
     for attempt in range(max_attempts):
@@ -205,6 +233,30 @@ def wait_for_page_load(driver, timeout=None):
         time.sleep(0.5)
     except:
         pass
+
+def _dump_failure(driver, keyword: str, tag: str) -> None:
+    if os.getenv("CULTIZM_DEBUG_DUMP", "true").lower() in ("0", "false", "no", "off"):
+        return
+    try:
+        ts = _now_local().strftime("%Y%m%d_%H%M%S")
+        safe_kw = "".join(c if c.isalnum() else "_" for c in keyword)[:40]
+        out_dir = Path(LOG_DIR) / "failures" / f"{ts}_{safe_kw}_{tag}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            (out_dir / "url.txt").write_text(driver.current_url or "", encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            (out_dir / "page.html").write_text(driver.page_source or "", encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            driver.save_screenshot(str(out_dir / "screen.png"))
+        except Exception:
+            pass
+        log(f"실패 덤프: {out_dir}", "WARNING")
+    except Exception as exc:
+        log(f"실패 덤프 자체가 실패: {exc}", "DEBUG")
 
 def load_targets():
     targets = []
@@ -584,25 +636,44 @@ def verify_product_match(driver, keyword):
         log(f"제품명 검증 오류: {e}, 허용", "DEBUG")
         return True
 
-def get_available_sizes(driver):
+def normalize_size_token(value: str) -> str:
+    return value.replace(" ", "").lower()
+
+def _size_entry(size: str, soldout: bool = False, raw: str = "") -> dict:
+    return {"size": size.strip(), "qty": None if not soldout else 0, "soldout": soldout, "raw": raw.strip()}
+
+def get_size_stocks(driver):
     try:
         swatch_labels = driver.find_elements(By.CSS_SELECTOR, "label.block-swatch")
         
         if swatch_labels:
-            available_sizes = []
+            size_stocks = []
             for label in swatch_labels:
                 try:
                     label_classes = label.get_attribute('class') or ''
-                    if 'is-disabled' not in label_classes:
-                        size_span = label.find_element(By.CSS_SELECTOR, "span")
-                        size_text = size_span.text.strip()
-                        if size_text:
-                            available_sizes.append(size_text)
+                    aria_disabled = (label.get_attribute("aria-disabled") or "").lower() == "true"
+                    input_disabled = False
+                    try:
+                        input_el = label.find_element(By.CSS_SELECTOR, "input")
+                        input_disabled = input_el.get_attribute("disabled") is not None
+                    except:
+                        pass
+
+                    soldout = (
+                        'is-disabled' in label_classes
+                        or 'disabled' in label_classes.lower()
+                        or aria_disabled
+                        or input_disabled
+                    )
+                    size_span = label.find_element(By.CSS_SELECTOR, "span")
+                    size_text = size_span.text.strip()
+                    if size_text:
+                        size_stocks.append(_size_entry(size_text, soldout=soldout, raw=label.text or size_text))
                 except:
                     continue
             
-            if available_sizes:
-                return available_sizes
+            if size_stocks:
+                return size_stocks
         
         # fallback
         size_container_selectors = [
@@ -646,7 +717,7 @@ def get_available_sizes(driver):
         if not option_elements:
             return []
         
-        available_sizes = []
+        size_stocks = []
         unavailable_keywords = [
             '선택 불가', '선택불가', '품절', 'sold out', 'out of stock',
             'unavailable', 'disabled', 'not available', '재고없음', '없음'
@@ -659,19 +730,52 @@ def get_available_sizes(driver):
                     text = text.strip()
                     if text.lower() not in ['choose', 'select', '선택', '선택해주세요']:
                         is_unavailable = any(keyword in text.lower() for keyword in unavailable_keywords)
-                        if not is_unavailable:
-                            available_sizes.append(text)
+                        size_stocks.append(_size_entry(text, soldout=is_unavailable, raw=text))
             except:
                 continue
         
-        return available_sizes
+        return size_stocks
         
     except:
         return []
 
-def send_telegram_alert(product, sizes, url):
+def get_available_sizes(driver):
+    return [s["size"] for s in get_size_stocks(driver) if not s.get("soldout")]
+
+def match_size_stocks(stocks: list[dict], target_sizes: list[str]) -> list[dict]:
+    available_map: dict[str, dict] = {}
+    for s in stocks:
+        token = normalize_size_token(s.get("size", ""))
+        if not token or s.get("soldout"):
+            continue
+        available_map.setdefault(token, s)
+
+    matched = []
+    seen = set()
+    for target in target_sizes:
+        token = normalize_size_token(target)
+        if token in available_map and token not in seen:
+            entry = available_map[token]
+            matched.append({"size": target, "qty": entry.get("qty"), "soldout": False})
+            seen.add(token)
+    return matched
+
+def _format_size_with_qty(sizes, size_stocks):
+    if not size_stocks:
+        return ", ".join(sizes or [])
+    qty_map = {}
+    for s in size_stocks:
+        key = (s.get("size") or "").strip()
+        if key and isinstance(s.get("qty"), int):
+            qty_map[key] = s.get("qty")
+    return ", ".join(
+        f"{size} ({qty_map[size]}개)" if size in qty_map else size
+        for size in (sizes or [])
+    )
+
+def send_telegram_alert(product, sizes, url, size_stocks=None, ack_link=None):
     try:
-        import subprocess
+        import requests
         
         bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -707,26 +811,33 @@ def send_telegram_alert(product, sizes, url):
                     log(f"텔레그램 중복 방지: {product} (남은 시간: {remaining/60:.1f}분)", "DEBUG")
                     return False
         
-        # 텔레그램 발송
-        telegram_script = os.path.join(BASE_DIR, "telegram_sender.py")
-        
-        if not os.path.exists(telegram_script):
-            create_telegram_script(telegram_script)
-        
-        subprocess.Popen(
-            [
-                "python3",
-                telegram_script,
-                bot_token,
-                chat_id,
-                product,
-                ",".join(sizes),
-                url
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True
-        )
+        repeat_count = int(os.getenv("TELEGRAM_REPEAT_COUNT", "3"))
+        interval = float(os.getenv("TELEGRAM_INTERVAL", "2.0"))
+
+        sizes_line = _format_size_with_qty(sizes, size_stocks)
+        message = f"🔔 재고 알림!\n\n상품: {product}\n사이즈: {sizes_line}\n\n{url}"
+        if ack_link:
+            message += f"\n\n▶ 이 알림 그만 받기(ACK): {ack_link}"
+
+        endpoint = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        ok = False
+        for i in range(repeat_count):
+            try:
+                response = requests.post(
+                    endpoint,
+                    json={"chat_id": chat_id, "text": message, "disable_web_page_preview": False},
+                    timeout=8,
+                )
+                if response.status_code == 200:
+                    ok = True
+                    break
+            except:
+                pass
+            if i < repeat_count - 1:
+                time.sleep(interval)
+
+        if not ok:
+            return False
         
         # 발송 이력 저장
         history.append({
@@ -749,7 +860,7 @@ def send_telegram_alert(product, sizes, url):
         
         return True
         
-    except:
+    except Exception:
         return False
 
 def create_telegram_script(script_path):
@@ -832,6 +943,7 @@ def check_single_stock(target):
         
         if not search_keyword(driver, keyword):
             log(f"{keyword} - 검색 실패", "ERROR")
+            _dump_failure(driver, keyword, "search_failed")
             return {"status": StockStatus.SEARCH_FAILED.value, "product": keyword}
         
         wait_for_page_load(driver)
@@ -841,6 +953,7 @@ def check_single_stock(target):
         if '/products/' not in current_url:
             if not click_first_product(driver, keyword):
                 log(f"{keyword} - 검색 결과 없음", "INFO")
+                _dump_failure(driver, keyword, "product_not_found")
                 return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
             wait_for_page_load(driver)
         
@@ -856,6 +969,7 @@ def check_single_stock(target):
             # 검색 결과 페이지에서 다시 찾기
             if not click_first_product(driver, keyword):
                 log(f"{keyword} - 재시도 후에도 검색 결과 없음", "INFO")
+                _dump_failure(driver, keyword, "retry_product_not_found")
                 return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
             
             wait_for_page_load(driver)
@@ -863,40 +977,54 @@ def check_single_stock(target):
             # 재검증
             if not verify_product_match(driver, keyword):
                 log(f"{keyword} - 재시도 후에도 제품명 불일치", "WARNING")
+                _dump_failure(driver, keyword, "product_mismatch")
                 return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
         
-        available_sizes = get_available_sizes(driver)
+        size_stocks = get_size_stocks(driver)
+        available_sizes = [s["size"] for s in size_stocks if not s.get("soldout")]
         
-        if not available_sizes:
+        if not size_stocks:
             log(f"{keyword} - 사이즈 옵션 없음", "INFO")
+            _dump_failure(driver, keyword, "size_options_missing")
             return {"status": StockStatus.OUT_OF_STOCK.value, "product": keyword}
         
-        # 사이즈 매칭
-        matched_sizes = []
-        for available in available_sizes:
-            available_clean = available.replace(" ", "").lower()
-            
-            for target in target_sizes:
-                target_clean = target.replace(" ", "").lower()
-                
-                if target_clean == available_clean:
-                    matched_sizes.append(available)
-                    break
+        matched = match_size_stocks(size_stocks, target_sizes)
         
         elapsed = time.time() - start_time
+        all_options_human = [
+            f"{s['size']}({'품절' if s.get('soldout') else '재고있음'})"
+            for s in size_stocks
+        ]
         
         # 핵심 로그: 검색어, 타겟 사이즈, 재고 있는 사이즈, 매칭 여부
-        if matched_sizes:
-            log(f"{keyword} - 재고 확인 성공 | 타겟: [{', '.join(target_sizes)}] | 재고: [{', '.join(available_sizes)}] | 매칭: [{', '.join(matched_sizes)}] ({elapsed:.1f}초)", "SUCCESS")
+        if matched:
+            matched_sizes = [m["size"] for m in matched]
+            log(
+                f"{keyword} - 재고 확인 성공 | 타겟: [{', '.join(target_sizes)}] | "
+                f"옵션: [{', '.join(all_options_human)}] | 매칭: [{', '.join(matched_sizes)}] ({elapsed:.1f}초)",
+                "SUCCESS",
+            )
             return {
                 "status": StockStatus.IN_STOCK.value,
                 "product": keyword,
                 "sizes": matched_sizes,
+                "size_stocks": matched,
+                "available_options": available_sizes,
+                "available_size_stocks": size_stocks,
                 "url": driver.current_url
             }
         else:
-            log(f"{keyword} - 재고 없음 | 타겟: [{', '.join(target_sizes)}] | 재고: [{', '.join(available_sizes)}] ({elapsed:.1f}초)", "INFO")
-            return {"status": StockStatus.OUT_OF_STOCK.value, "product": keyword, "available_sizes": available_sizes}
+            log(
+                f"{keyword} - 재고 없음 | 타겟: [{', '.join(target_sizes)}] | "
+                f"옵션: [{', '.join(all_options_human)}] ({elapsed:.1f}초)",
+                "INFO",
+            )
+            return {
+                "status": StockStatus.OUT_OF_STOCK.value,
+                "product": keyword,
+                "available_options": available_sizes,
+                "available_size_stocks": size_stocks,
+            }
         
     except Exception as e:
         elapsed = time.time() - start_time
@@ -905,14 +1033,7 @@ def check_single_stock(target):
             log(traceback.format_exc(), "ERROR")
         return {"status": "error", "product": keyword, "error": str(e)}
     finally:
-        if driver:
-            try:
-                driver.quit()
-            except:
-                try:
-                    driver.service.process.kill()
-                except:
-                    pass
+        safe_quit_driver(driver)
 
 def main():
     if not create_lock():
@@ -975,6 +1096,7 @@ def main():
                 available_items.append({
                     "product": result["product"],
                     "sizes": result["sizes"], 
+                    "size_stocks": result.get("size_stocks", []),
                     "url": result["url"]
                 })
             elif status == "verification_failed":
@@ -1023,7 +1145,13 @@ def main():
             for item in available_items:
                 product = item["product"]
                 sizes = item["sizes"]
+                size_stocks = item.get("size_stocks", [])
                 url = item["url"]
+                sizes_human = _format_size_with_qty(sizes, size_stocks)
+                sizes_for_alert = [
+                    f"{m['size']} ({m['qty']}개)" if isinstance(m.get("qty"), int) else m["size"]
+                    for m in (size_stocks or [{"size": s, "qty": None} for s in sizes])
+                ]
                 
                 dedup_prefix = alert_policy.make_dedup_key(product, "ALL", StockStatus.IN_STOCK.value)
                 policy_mode = os.getenv("ALERT_POLICY_MODE", "v1")
@@ -1033,16 +1161,24 @@ def main():
                     log(f"알림 스킵: {product} ({decision.reason})", "DEBUG")
                     continue
 
-                if send_stock_alert("cultizm", product, sizes, url, dedup_prefix=dedup_prefix):
+                try:
+                    from stock_check.app.services.alert_token import build_ack_link
+                    ack_link = build_ack_link("cultizm", dedup_prefix)
+                except Exception:
+                    ack_link = None
+
+                if send_stock_alert("cultizm", product, sizes_for_alert, url,
+                                    dedup_prefix=dedup_prefix, ack_link=ack_link):
                     email_sent += 1
 
-                if send_telegram_alert(product, sizes, url):
+                if send_telegram_alert(product, sizes, url,
+                                       size_stocks=size_stocks, ack_link=ack_link):
                     telegram_sent += 1
 
                 alert_policy.mark_sent(dedup_prefix, StockStatus.IN_STOCK.value)
                 alert_policy.record_ops_status(product, {
                     "last_status": StockStatus.IN_STOCK.value,
-                    "last_message": f"sizes={','.join(sizes)}",
+                    "last_message": f"sizes={sizes_human}",
                     "product_url": url,
                     "is_error": False,
                 })
@@ -1058,7 +1194,14 @@ def main():
                 "email_sent": email_sent,
                 "telegram_sent": telegram_sent,
                 "threads_used": max_workers,
-                "available_items": [{"product": item["product"], "sizes": item["sizes"]} for item in available_items]
+                "available_items": [
+                    {
+                        "product": item["product"],
+                        "sizes": item["sizes"],
+                        "size_stocks": item.get("size_stocks", []),
+                    }
+                    for item in available_items
+                ]
             }
             
             results_file = os.path.join(BASE_DIR, "recent_results.json")
