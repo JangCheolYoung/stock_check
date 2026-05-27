@@ -18,8 +18,16 @@ CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_DIR.parent.parent
 DEFAULT_DATA_ROOT = PROJECT_ROOT / "stock_check"
 
-load_dotenv(CURRENT_DIR / ".env")
-load_dotenv()
+
+def _safe_load_dotenv(path=None, **kwargs):
+    try:
+        return load_dotenv(path, **kwargs) if path is not None else load_dotenv(**kwargs)
+    except PermissionError:
+        return False
+
+
+_safe_load_dotenv(CURRENT_DIR / ".env")
+_safe_load_dotenv()
 
 
 def _site_dir(site_name):

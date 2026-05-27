@@ -47,9 +47,16 @@ except Exception:
 # 배포본 혼재(레거시 코드/동적 평가)로 전역 스코프에서 StockStatus를 못 찾는 경우까지 방지
 builtins.StockStatus = StockStatus
 
+def safe_load_dotenv(path=None, **kwargs):
+    try:
+        return load_dotenv(path, **kwargs) if path is not None else load_dotenv(**kwargs)
+    except PermissionError:
+        return False
+
+
 # 통합 환경변수 로드
-load_dotenv(PROJECT_ROOT / 'stock_check' / 'shared' / '.env')
-load_dotenv()
+safe_load_dotenv(PROJECT_ROOT / 'stock_check' / 'shared' / '.env')
+safe_load_dotenv()
 
 # 설정
 DATA_ROOT = Path(os.getenv('STOCK_CHECK_DATA_ROOT', str(PROJECT_ROOT / 'stock_check')))
