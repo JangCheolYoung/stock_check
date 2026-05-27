@@ -12,8 +12,10 @@ import threading
 import json
 import builtins
 import traceback
+from urllib.parse import quote, urljoin
 from pathlib import Path
 from datetime import datetime
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -643,6 +645,125 @@ def verify_product_match(driver, keyword):
         log(f"제품명 검증 오류: {e}, 허용", "DEBUG")
         return True
 
+def _keyword_parts(keyword: str) -> list[str]:
+    return [part for part in keyword.lower().replace("/", " ").replace("-", " ").split() if len(part) >= 3]
+
+def _product_title_matches(keyword: str, title: str, url: str = "") -> bool:
+    parts = _keyword_parts(keyword)
+    if not parts:
+        return False
+    haystack = f"{title} {url}".lower().replace("/", " ").replace("-", " ")
+    brand = parts[0]
+    if brand not in haystack:
+        return False
+    return sum(1 for part in parts if part in haystack) >= min(2, len(parts))
+
+def _best_suggested_product(keyword: str, products: list[dict]) -> dict | None:
+    matched = []
+    for product in products:
+        title = product.get("title", "")
+        url = product.get("url", "")
+        if _product_title_matches(keyword, title, url):
+            score = sum(1 for part in _keyword_parts(keyword) if part in f"{title} {url}".lower().replace("/", " ").replace("-", " "))
+            matched.append((score, product))
+    if not matched:
+        return None
+    matched.sort(key=lambda item: item[0], reverse=True)
+    return matched[0][1]
+
+def check_single_stock_shopify_api(target):
+    """Cultizm Shopify JSON API path. Avoids fragile browser search and Cloudflare search pages."""
+    keyword = target["keyword"]
+    target_sizes = target["sizes"]
+    start_time = time.time()
+    headers = {
+        "User-Agent": os.getenv(
+            "CULTIZM_USER_AGENT",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ),
+        "Accept": "application/json,text/plain,*/*",
+    }
+    timeout = int(os.getenv("CULTIZM_API_TIMEOUT", "20"))
+
+    try:
+        suggest_url = (
+            "https://cultizm.com/search/suggest.json"
+            f"?q={quote(keyword)}&resources[type]=product&resources[limit]=10"
+        )
+        response = requests.get(suggest_url, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        payload = response.json()
+        products = payload.get("resources", {}).get("results", {}).get("products", [])
+        product = _best_suggested_product(keyword, products)
+        if not product:
+            log(f"{keyword} - Shopify suggest 결과 없음/불일치", "INFO")
+            return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
+
+        handle = product.get("handle")
+        product_url_path = product.get("url") or (f"/products/{handle}" if handle else "")
+        product_url = urljoin("https://cultizm.com", product_url_path.split("?", 1)[0])
+        if not handle and "/products/" in product_url:
+            handle = product_url.rstrip("/").split("/products/", 1)[1]
+        if not handle:
+            return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
+
+        product_response = requests.get(f"https://cultizm.com/products/{handle}.js", headers=headers, timeout=timeout)
+        product_response.raise_for_status()
+        product_payload = product_response.json()
+        title = product_payload.get("title") or product.get("title") or keyword
+        if not _product_title_matches(keyword, title, product_url):
+            log(f"{keyword} - Shopify 제품명 불일치: {title}", "WARNING")
+            return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
+
+        variants = product_payload.get("variants") or []
+        size_stocks = []
+        for variant in variants:
+            size = variant.get("public_title") or variant.get("option1") or variant.get("title") or ""
+            if size and size.lower() != "default title":
+                size_stocks.append(_size_entry(size, soldout=not bool(variant.get("available")), raw=size))
+
+        if not size_stocks:
+            log(f"{keyword} - Shopify 사이즈 옵션 없음", "INFO")
+            return {"status": StockStatus.OUT_OF_STOCK.value, "product": keyword}
+
+        matched = match_size_stocks(size_stocks, target_sizes)
+        available_sizes = [s["size"] for s in size_stocks if not s.get("soldout")]
+        all_options_human = [f"{s['size']}({'품절' if s.get('soldout') else '재고있음'})" for s in size_stocks]
+        elapsed = time.time() - start_time
+
+        if matched:
+            matched_sizes = [m["size"] for m in matched]
+            log(
+                f"{keyword} - Shopify API 재고 확인 성공 | 타겟: [{', '.join(target_sizes)}] | "
+                f"옵션: [{', '.join(all_options_human)}] | 매칭: [{', '.join(matched_sizes)}] ({elapsed:.1f}초)",
+                "SUCCESS",
+            )
+            return {
+                "status": StockStatus.IN_STOCK.value,
+                "product": keyword,
+                "sizes": matched_sizes,
+                "size_stocks": matched,
+                "available_options": available_sizes,
+                "available_size_stocks": size_stocks,
+                "url": product_url,
+            }
+
+        log(
+            f"{keyword} - Shopify API 재고 없음 | 타겟: [{', '.join(target_sizes)}] | "
+            f"옵션: [{', '.join(all_options_human)}] ({elapsed:.1f}초)",
+            "INFO",
+        )
+        return {
+            "status": StockStatus.OUT_OF_STOCK.value,
+            "product": keyword,
+            "available_options": available_sizes,
+            "available_size_stocks": size_stocks,
+        }
+    except Exception as e:
+        log(f"{keyword} - Shopify API 확인 실패, 브라우저로 폴백: {e}", "WARNING")
+        return None
+
 def normalize_size_token(value: str) -> str:
     return value.replace(" ", "").lower()
 
@@ -935,6 +1056,10 @@ if __name__ == "__main__":
 def check_single_stock(target):
     keyword = target["keyword"]
     target_sizes = target["sizes"]
+
+    api_result = check_single_stock_shopify_api(target)
+    if api_result is not None:
+        return api_result
     
     driver = None
     start_time = time.time()
@@ -1076,7 +1201,8 @@ def main():
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_target = {executor.submit(check_single_stock, target): target for target in targets}
             
-            for future in concurrent.futures.as_completed(future_to_target, timeout=300):
+            total_timeout = int(os.getenv("CULTIZM_RUN_TIMEOUT", str(max(300, len(targets) * 120))))
+            for future in concurrent.futures.as_completed(future_to_target, timeout=total_timeout):
                 target = future_to_target[future]
                 try:
                     result = future.result(timeout=60)
@@ -1231,7 +1357,7 @@ def main():
             log(f"재고 확인 완료 | 재고 없음 | 검색: {len(targets)}개 | 오류: {error_count}개 | 검증실패: {len(verification_failed_items)}개 | 소요시간: {elapsed_time:.1f}초", "INFO")
      
     except concurrent.futures.TimeoutError:
-        log("전체 프로세스 타임아웃 (5분 초과)", "ERROR")
+        log("전체 프로세스 타임아웃", "ERROR")
     except Exception as e:
         log(f"전체 프로세스 오류: {e}", "ERROR")
         if "AlertPolicy" in str(e) or "StockStatus" in str(e):

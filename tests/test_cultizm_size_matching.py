@@ -36,6 +36,24 @@ class CultizmSizeMatchingTests(unittest.TestCase):
         matched = match_size_stocks(stocks, ["L"])
         self.assertEqual(matched, [])
 
+    def test_product_title_matching_uses_meaningful_tokens(self):
+        from stock_check.cultizm.stock_checker import _product_title_matches
+
+        self.assertTrue(
+            _product_title_matches(
+                "RRL Buffalo Western Shirt Indigo/Cream",
+                "RRL Buffalo Western Shirt Indigo/Cream",
+                "/products/rrl-buffalo-western-shirt-indigocream",
+            )
+        )
+        self.assertFalse(
+            _product_title_matches(
+                "RRL Slider-Buckle Black",
+                "Studio D'Artisan 4619 Sashiko Denim 2nd Type Jacket One Wash Indigo",
+                "/products/studio-dartisan-sd-4101e-gl3-1st-type-denim-jacket-one-wash-ecru",
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
