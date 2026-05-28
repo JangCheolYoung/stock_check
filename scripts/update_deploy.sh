@@ -35,12 +35,22 @@ sudo -u "$RUN_USER" bash -lc "cd '$APP_DIR' && source .venv/bin/activate && pyth
 systemctl restart "$SERVICE_NAME"
 systemctl status "$SERVICE_NAME" --no-pager
 
-echo "[정보] 스케줄러 타이머 설치/갱신 적용"
-APP_DIR="$APP_DIR" RUN_USER="$RUN_USER" bash "$APP_DIR/scripts/install_scheduler_timer.sh"
-systemctl status stock-check-scheduler.timer --no-pager
+echo "[정보] 사이트별 스케줄러 타이머 설치/갱신 적용"
+systemctl disable --now stock-check-scheduler.timer >/dev/null 2>&1 || true
+APP_DIR="$APP_DIR" RUN_USER="$RUN_USER" SERVICE_NAME=stock-check-cultizm-scheduler SCHEDULER_SITE=cultizm ON_CALENDAR="*-*-* *:*:00" \
+  bash "$APP_DIR/scripts/install_scheduler_timer.sh"
+APP_DIR="$APP_DIR" RUN_USER="$RUN_USER" SERVICE_NAME=stock-check-hyundai-scheduler SCHEDULER_SITE=hyundai ON_CALENDAR="*-*-* *:00/5:00" \
+  bash "$APP_DIR/scripts/install_scheduler_timer.sh"
+systemctl status stock-check-cultizm-scheduler.timer --no-pager
+systemctl status stock-check-hyundai-scheduler.timer --no-pager
 
-if ! systemctl is-active --quiet stock-check-scheduler.timer; then
-  echo "[오류] stock-check-scheduler.timer 가 active 상태가 아닙니다."
+if ! systemctl is-active --quiet stock-check-cultizm-scheduler.timer; then
+  echo "[오류] stock-check-cultizm-scheduler.timer 가 active 상태가 아닙니다."
+  exit 1
+fi
+
+if ! systemctl is-active --quiet stock-check-hyundai-scheduler.timer; then
+  echo "[오류] stock-check-hyundai-scheduler.timer 가 active 상태가 아닙니다."
   exit 1
 fi
 
