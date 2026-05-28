@@ -126,7 +126,7 @@ class SchedulerRuntime:
             return True, "ok"
         return False, f"exit_{proc.returncode}:{proc.stderr[-300:]}"
 
-    def run_once(self) -> dict:
+    def run_once(self, only_site: str | None = None) -> dict:
         executed_at = datetime.now().astimezone()
         settings = self.service.load_monitor_settings()
         state = self.load_state()
@@ -134,6 +134,8 @@ class SchedulerRuntime:
         result = {"executed_at": executed_at.isoformat(), "sites": {}}
 
         for site, conf in settings.items():
+            if only_site and site != only_site:
+                continue
             now_for_site = self._site_now(conf)
             should, reason = self.should_run(site, conf, now_for_site, state)
             info = {
@@ -173,10 +175,11 @@ class SchedulerRuntime:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true", default=True)
-    parser.parse_args()
+    parser.add_argument("--site", choices=["cultizm", "hyundai"], help="Run only one site's scheduler evaluation")
+    args = parser.parse_args()
 
     runtime = SchedulerRuntime()
-    result = runtime.run_once()
+    result = runtime.run_once(only_site=args.site)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

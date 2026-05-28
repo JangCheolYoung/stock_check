@@ -74,6 +74,20 @@ class SchedulerRuntimeTests(unittest.TestCase):
         self.assertEqual(logs[0]["reason"], "disabled")
         self.assertEqual(logs[0]["evaluation_timezone"], "Asia/Seoul")
 
+    def test_run_once_can_filter_one_site(self):
+        settings = {
+            "cultizm": MonitorSettings(site="cultizm", enabled=False, schedule_timezone="Asia/Seoul"),
+            "hyundai": MonitorSettings(site="hyundai", enabled=False, schedule_timezone="Asia/Seoul"),
+        }
+        self.service.save_monitor_settings(settings)
+
+        result = self.runtime.run_once(only_site="cultizm")
+        self.assertEqual(list(result["sites"].keys()), ["cultizm"])
+
+        logs = self.service.load_scheduler_logs(limit=10)
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0]["site"], "cultizm")
+
 
 if __name__ == "__main__":
     unittest.main()

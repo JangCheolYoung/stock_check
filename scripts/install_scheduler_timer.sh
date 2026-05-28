@@ -4,6 +4,8 @@ set -euo pipefail
 APP_DIR=${APP_DIR:-/opt/stock_check}
 RUN_USER=${RUN_USER:-}
 SERVICE_NAME=${SERVICE_NAME:-stock-check-scheduler}
+SCHEDULER_SITE=${SCHEDULER_SITE:-}
+ON_CALENDAR=${ON_CALENDAR:-"*-*-* *:*:00"}
 
 if [[ "$EUID" -ne 0 ]]; then
   echo "[오류] root 권한으로 실행하세요."
@@ -17,6 +19,11 @@ fi
 if [[ -z "$RUN_USER" || "$RUN_USER" == "UNKNOWN" ]] || ! id -u "$RUN_USER" >/dev/null 2>&1; then
   echo "[경고] RUN_USER 자동 감지 실패 -> root로 대체"
   RUN_USER=root
+fi
+
+EXTRA_ARGS="--once"
+if [[ -n "$SCHEDULER_SITE" ]]; then
+  EXTRA_ARGS="$EXTRA_ARGS --site $SCHEDULER_SITE"
 fi
 
 cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
@@ -33,7 +40,7 @@ Environment="PYTHONPATH=$APP_DIR"
 Environment="STOCK_CHECK_DATA_ROOT=$APP_DIR/stock_check"
 Environment="STOCK_CHECK_ENV_FILE=$APP_DIR/stock_check/shared/.env"
 Environment="STOCK_CHECK_ACCESS_KEY_FILE=$APP_DIR/stock_check/shared/access_key.txt"
-ExecStart=$APP_DIR/.venv/bin/python -m stock_check.run_scheduler --once
+ExecStart=$APP_DIR/.venv/bin/python -m stock_check.run_scheduler $EXTRA_ARGS
 EOF
 
 cat > /etc/systemd/system/${SERVICE_NAME}.timer <<EOF
@@ -41,7 +48,7 @@ cat > /etc/systemd/system/${SERVICE_NAME}.timer <<EOF
 Description=Run Stock Check scheduler every minute
 
 [Timer]
-OnCalendar=*-*-* *:*:00
+OnCalendar=$ON_CALENDAR
 Persistent=true
 Unit=${SERVICE_NAME}.service
 
