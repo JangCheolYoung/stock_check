@@ -33,8 +33,11 @@
 - `STOCK_CHECK_ACCESS_KEY_FILE`: 웹 접속키 파일 경로(기본: `<repo>/stock_check/shared/access_key.txt`)
 - `STOCK_CHECK_WEB_SECRET`: Flask 세션 시크릿
 - `STOCK_CHECK_WEB_PORT`: 웹 포트(기본 8080)
-- `EMAIL_ALERT_INTERVAL`: 이메일 중복 방지 간격(초)
-- `TELEGRAM_ALERT_INTERVAL`: 텔레그램 중복 방지 간격(초)
+- `EMAIL_ALERT_INTERVAL`: 이메일 중복 방지 간격(초, 기본 86400)
+- `TELEGRAM_ALERT_INTERVAL`: 텔레그램 중복 방지 간격(초, 기본 86400)
+- `TELEGRAM_REPEAT_COUNT`: 텔레그램 재고 알림 연속 발송 횟수(기본 3)
+- `TELEGRAM_INTERVAL`: 텔레그램 재고 알림 연속 발송 간격(초, 기본 10)
+- `STOCK_CHECK_ACK_ENABLED`: ACK 링크/ACK 기반 반복 정책 활성화 여부(기본 false)
 
 ## 로컬 실행 방법
 

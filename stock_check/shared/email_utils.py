@@ -62,7 +62,7 @@ def can_send_email(site_name, dedup_key):
 
     last_sent = datetime.fromisoformat(history[dedup_key])
     time_diff = datetime.now() - last_sent
-    email_interval_seconds = int(os.getenv("EMAIL_ALERT_INTERVAL", "3600"))
+    email_interval_seconds = int(os.getenv("EMAIL_ALERT_INTERVAL", "86400"))
     return time_diff >= timedelta(seconds=email_interval_seconds)
 
 

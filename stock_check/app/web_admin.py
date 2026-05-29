@@ -213,8 +213,8 @@ def create_app() -> Flask:
             service.save_monitor_settings(current)
 
             env_map = service._load_env_map()
-            env_map["EMAIL_ALERT_INTERVAL"] = request.form.get("email_alert_interval", "3600").strip()
-            env_map["TELEGRAM_ALERT_INTERVAL"] = request.form.get("telegram_alert_interval", "3600").strip()
+            env_map["EMAIL_ALERT_INTERVAL"] = request.form.get("email_alert_interval", "86400").strip()
+            env_map["TELEGRAM_ALERT_INTERVAL"] = request.form.get("telegram_alert_interval", "86400").strip()
             service._write_env_map(env_map)
 
             flash("스케줄/알림 빈도 설정이 저장되었습니다. (시간 기준: Asia/Seoul)", "success")
@@ -227,8 +227,8 @@ def create_app() -> Flask:
         return render_template(
             "schedule_settings.html",
             rows=rows,
-            email_alert_interval=env_map.get("EMAIL_ALERT_INTERVAL", "3600"),
-            telegram_alert_interval=env_map.get("TELEGRAM_ALERT_INTERVAL", "3600"),
+            email_alert_interval=env_map.get("EMAIL_ALERT_INTERVAL", "86400"),
+            telegram_alert_interval=env_map.get("TELEGRAM_ALERT_INTERVAL", "86400"),
             server_now_utc_iso=now_utc.isoformat(),
             server_now_seoul_iso=now_seoul.isoformat(),
             schedule_timezone=SCHEDULE_TIMEZONE,

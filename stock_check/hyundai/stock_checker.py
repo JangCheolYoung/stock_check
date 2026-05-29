@@ -840,7 +840,7 @@ def send_telegram_alert(product, sizes, url, size_stocks=None, ack_link=None):
             return False
 
         # 중복 방지
-        telegram_interval = int(os.getenv("TELEGRAM_ALERT_INTERVAL", "3600"))  # 기본 1시간
+        telegram_interval = int(os.getenv("TELEGRAM_ALERT_INTERVAL", "86400"))  # 기본 24시간
         history_file = os.path.join(BASE_DIR, "telegram_history.json")
 
         try:
@@ -862,7 +862,7 @@ def send_telegram_alert(product, sizes, url, size_stocks=None, ack_link=None):
                     return False
 
         repeat_count = int(os.getenv("TELEGRAM_REPEAT_COUNT", "3"))
-        interval = float(os.getenv("TELEGRAM_INTERVAL", "2.0"))
+        interval = float(os.getenv("TELEGRAM_INTERVAL", "10.0"))
 
         sizes_line = _format_size_with_qty(sizes, size_stocks)
         msg = f"🔔 재고 알림!\n\n상품: {product}\n사이즈: {sizes_line}\n\n{url}"
@@ -870,7 +870,7 @@ def send_telegram_alert(product, sizes, url, size_stocks=None, ack_link=None):
             msg += f"\n\n▶ 이 알림 그만 받기(ACK): {ack_link}"
 
         endpoint = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-        ok = False
+        success_count = 0
         for i in range(repeat_count):
             try:
                 r = requests.post(
@@ -879,13 +879,13 @@ def send_telegram_alert(product, sizes, url, size_stocks=None, ack_link=None):
                     timeout=8
                 )
                 if r.status_code == 200:
-                    ok = True
-                    break
+                    success_count += 1
             except:
                 pass
-            time.sleep(interval)
+            if i < repeat_count - 1:
+                time.sleep(interval)
 
-        if not ok:
+        if success_count == 0:
             return False
 
         # 이력 저장
@@ -1159,6 +1159,8 @@ def main():
 
                 dedup_prefix = alert_policy.make_dedup_key(product, "ALL", StockStatus.IN_STOCK.value)
                 policy_mode = os.getenv("ALERT_POLICY_MODE", "v1")
+                if os.getenv("STOCK_CHECK_ACK_ENABLED", "false").strip().lower() not in ("1", "true", "yes", "on"):
+                    policy_mode = "v1"
                 decision = alert_policy.should_send(dedup_prefix, policy_mode=policy_mode)
                 if not decision.should_send:
                     log(f"알림 스킵: {product} ({decision.reason})", "DEBUG")

@@ -78,12 +78,14 @@ class AlertTokenTests(unittest.TestCase):
         self.assertIsNone(build_ack_link("hyundai", "p|ALL|IN_STOCK"))
 
         os.environ["STOCK_CHECK_PUBLIC_URL"] = "http://example.com:8080/"
+        os.environ["STOCK_CHECK_ACK_ENABLED"] = "true"
         try:
             link = build_ack_link("hyundai", "p|ALL|IN_STOCK")
             self.assertIsNotNone(link)
             self.assertTrue(link.startswith("http://example.com:8080/ack?t="))
         finally:
             os.environ.pop("STOCK_CHECK_PUBLIC_URL", None)
+            os.environ.pop("STOCK_CHECK_ACK_ENABLED", None)
 
 
 if __name__ == "__main__":

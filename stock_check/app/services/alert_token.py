@@ -18,6 +18,15 @@ import time
 from typing import Optional
 
 
+def ack_links_enabled() -> bool:
+    return os.getenv("STOCK_CHECK_ACK_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _secret() -> bytes:
     return (os.getenv("STOCK_CHECK_WEB_SECRET", "stock-check-secret") or "").encode()
 
@@ -72,7 +81,9 @@ def verify_ack_token(token: str) -> Optional[tuple[str, str]]:
 
 
 def build_ack_link(site: str, dedup_key: str) -> Optional[str]:
-    """STOCK_CHECK_PUBLIC_URL 가 설정돼 있을 때만 ACK URL 을 반환."""
+    """ACK 기능이 켜져 있고 STOCK_CHECK_PUBLIC_URL 가 설정돼 있을 때만 ACK URL 반환."""
+    if not ack_links_enabled():
+        return None
     base = (os.getenv("STOCK_CHECK_PUBLIC_URL", "") or "").rstrip("/")
     if not base:
         return None
