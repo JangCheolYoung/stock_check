@@ -3,19 +3,19 @@ set -euo pipefail
 
 # stock-check 헬스 모니터 타이머 두 개 설치
 #   stock-check-health-resource.timer  → 5분마다 (기본) CPU/메모리/디스크 임계 체크
-#   stock-check-health-daily.timer     → 매일 07:00 Asia/Seoul 헬스 리포트
+#   stock-check-health-daily.timer     → 매일 06:00 Asia/Seoul 헬스 리포트
 #
 # 사용:
 #   sudo APP_DIR=/opt/stock_check RUN_USER=root bash scripts/install_health_timers.sh
 #
 # 옵션 환경변수:
 #   RESOURCE_INTERVAL  기본 5min  (systemd OnUnitActiveSec 형식: 5min / 10min / 1min)
-#   DAILY_TIME         기본 07:00:00  (HH:MM:SS, Asia/Seoul 기준)
+#   DAILY_TIME         기본 06:00:00  (HH:MM:SS, Asia/Seoul 기준)
 
 APP_DIR=${APP_DIR:-/opt/stock_check}
 RUN_USER=${RUN_USER:-}
 RESOURCE_INTERVAL=${RESOURCE_INTERVAL:-5min}
-DAILY_TIME=${DAILY_TIME:-07:00:00}
+DAILY_TIME=${DAILY_TIME:-06:00:00}
 
 if [[ "$EUID" -ne 0 ]]; then
   echo "[오류] root 권한으로 실행하세요. (sudo)"

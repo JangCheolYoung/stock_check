@@ -54,4 +54,17 @@ if ! systemctl is-active --quiet stock-check-hyundai-scheduler.timer; then
   exit 1
 fi
 
+echo "[정보] 헬스 모니터 타이머 설치/갱신 적용"
+APP_DIR="$APP_DIR" RUN_USER="$RUN_USER" DAILY_TIME=06:00:00 bash "$APP_DIR/scripts/install_health_timers.sh"
+
+if ! systemctl is-active --quiet stock-check-health-resource.timer; then
+  echo "[오류] stock-check-health-resource.timer 가 active 상태가 아닙니다."
+  exit 1
+fi
+
+if ! systemctl is-active --quiet stock-check-health-daily.timer; then
+  echo "[오류] stock-check-health-daily.timer 가 active 상태가 아닙니다."
+  exit 1
+fi
+
 echo "[완료] 업데이트 배포 완료"

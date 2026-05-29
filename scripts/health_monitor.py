@@ -6,7 +6,7 @@
 모드:
   --mode resource   : CPU/메모리/디스크 임계 체크 (기본 5분 단위 systemd timer)
                       임계 초과 시 텔레그램+이메일로 알림. 같은 종류는 60분 쿨다운.
-  --mode daily      : 매일 1회 헬스 요약 (기본 매일 07:00 KST timer)
+  --mode daily      : 매일 1회 헬스 요약 (기본 매일 06:00 KST timer)
                       서비스 상태 + 자원 + 오늘 사이클 통계를 텔레그램+이메일 발송.
 
 환경변수(.env):
@@ -171,15 +171,15 @@ def service_status(unit: str) -> str:
         return "unknown"
 
 
-def recent_cycle_stats() -> dict:
-    """가장 최근 mtime 의 hyundai 로그 파일에서 사이클 통계를 집계.
+def recent_cycle_stats(site: str) -> dict:
+    """가장 최근 mtime 의 사이트 로그 파일에서 사이클 통계를 집계.
 
     이전엔 datetime.now() 로 '오늘 날짜' 파일을 찾았는데, scheduler 프로세스의
     TZ(UTC) 와 health daily 서비스의 TZ(Asia/Seoul)가 어긋나면 KST 자정~오전
     시간대에 파일을 못 찾는 문제가 있었음. 최신 mtime 기준으로 바꿔 TZ 차이에
     무관하게 동작.
     """
-    log_dir = DATA_ROOT / "hyundai" / "logs"
+    log_dir = DATA_ROOT / site / "logs"
     stats = {"cycles": 0, "errors": 0, "last_summary": "", "file": ""}
     if not log_dir.is_dir():
         return stats
@@ -207,8 +207,20 @@ def recent_cycle_stats() -> dict:
     return stats
 
 
+def site_cycle_lines() -> list[str]:
+    lines = []
+    for site, label in [("hyundai", "더현대"), ("cultizm", "컬티즘")]:
+        cycle = recent_cycle_stats(site)
+        lines.append(
+            f"- {label}({cycle.get('file') or '?'}) : "
+            f"{cycle['cycles']}회 / 오류 라인 {cycle['errors']}건"
+        )
+        lines.append(f"  마지막 로그: {cycle['last_summary'] or '기록 없음'}")
+    return lines
+
+
 # 하위호환 alias (혹시 외부 호출이 있을 경우)
-today_cycle_stats = recent_cycle_stats
+today_cycle_stats = lambda: recent_cycle_stats("hyundai")
 
 
 # ---------------------------------------------------------------- modes
@@ -259,21 +271,25 @@ def mode_resource() -> int:
 def mode_daily() -> int:
     r = collect_resources()
     admin = service_status("stock-check-admin")
-    sched_timer = service_status("stock-check-scheduler.timer")
-    cycle = recent_cycle_stats()
+    cultizm_timer = service_status("stock-check-cultizm-scheduler.timer")
+    hyundai_timer = service_status("stock-check-hyundai-scheduler.timer")
+    legacy_timer = service_status("stock-check-scheduler.timer")
+    cycle_lines = "\n".join(site_cycle_lines())
 
     body = (
         f"📊 [{HOSTNAME}] stock-check 일일 헬스 리포트\n"
         f"기준 시각: {_now_kst().strftime('%Y-%m-%d %H:%M:%S')} KST\n\n"
         f"서비스 상태:\n"
         f"- stock-check-admin       : {admin}\n"
-        f"- stock-check-scheduler   : {sched_timer}\n\n"
+        f"- stock-check-cultizm     : {cultizm_timer}\n"
+        f"- stock-check-hyundai     : {hyundai_timer}\n"
+        f"- stock-check-scheduler   : {legacy_timer}\n\n"
         f"자원 사용:\n"
         f"- CPU      : {r['cpu_pct']:.1f}%\n"
         f"- 메모리   : {r['mem_pct']:.1f}% ({r['mem_used_mb']}/{r['mem_total_mb']}MB)\n"
         f"- 디스크 / : {r['disk_pct']:.1f}% ({r['disk_used_gb']}/{r['disk_total_gb']}GB)\n\n"
-        f"최근 로그({cycle.get('file', '?')}): {cycle['cycles']}회 / 오류 라인 {cycle['errors']}건\n"
-        f"마지막 사이클 로그: {cycle['last_summary'] or '기록 없음'}\n"
+        f"최근 로그:\n"
+        f"{cycle_lines}\n"
     )
     ok_tg = telegram_send(body)
     ok_em = email_send("일일 헬스 리포트", body)
