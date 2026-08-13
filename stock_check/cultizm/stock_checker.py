@@ -633,8 +633,8 @@ def verify_product_match(driver, keyword):
         
         log(f"키워드 매칭: {matched_count}/{total_count} ({keyword_parts})", "DEBUG")
         
-        # 브랜드명 + 최소 1개 이상 추가 매칭되면 OK
-        if matched_count >= 2:
+        # 모든 핵심 키워드가 일치해야 OK (유사 상품 오매칭 방지)
+        if matched_count >= total_count:
             log(f"제품명 매칭 성공 (매칭 키워드 {matched_count}개)", "DEBUG")
             return True
         else:
@@ -656,7 +656,7 @@ def _product_title_matches(keyword: str, title: str, url: str = "") -> bool:
     brand = parts[0]
     if brand not in haystack:
         return False
-    return sum(1 for part in parts if part in haystack) >= min(2, len(parts))
+    return sum(1 for part in parts if part in haystack) >= len(parts)
 
 def _best_suggested_product(keyword: str, products: list[dict]) -> dict | None:
     matched = []
@@ -721,7 +721,9 @@ def check_single_stock_shopify_api(target):
         for variant in variants:
             size = variant.get("public_title") or variant.get("option1") or variant.get("title") or ""
             if size and size.lower() != "default title":
-                size_stocks.append(_size_entry(size, soldout=not bool(variant.get("available")), raw=size))
+                _e = _size_entry(size, soldout=not bool(variant.get("available")), raw=size)
+                _e["id"] = variant.get("id")
+                size_stocks.append(_e)
 
         if not size_stocks:
             log(f"{keyword} - Shopify 사이즈 옵션 없음", "INFO")
@@ -884,9 +886,39 @@ def match_size_stocks(stocks: list[dict], target_sizes: list[str]) -> list[dict]
         token = normalize_size_token(target)
         if token in available_map and token not in seen:
             entry = available_map[token]
-            matched.append({"size": target, "qty": entry.get("qty"), "soldout": False})
+            matched.append({"size": target, "qty": entry.get("qty"), "soldout": False, "id": entry.get("id")})
             seen.add(token)
     return matched
+
+def variant_qty(vid, timeout=12):
+    """Shopify 카트 트릭으로 variant 재고 수량 파악. add.js 1개 -> change.js 99개 -> 422 'Only N items'. 실패시 None."""
+    if not vid:
+        return None
+    import json as _json, re as _re, urllib.request as _u, urllib.error as _ue, http.cookiejar as _cj
+    op = _u.build_opener(_u.HTTPCookieProcessor(_cj.CookieJar()))
+    hdr = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+    shop = "https://www.cultizm.com"
+    import time as _t
+    for _attempt in range(2):
+        try:
+            op.open(_u.Request(shop + "/cart/add.js", data=_json.dumps({"id": vid, "quantity": 1}).encode(), headers=hdr), timeout=timeout).read()
+            break
+        except Exception:
+            if _attempt == 0:
+                _t.sleep(3); continue
+            return None
+    try:
+        r = op.open(_u.Request(shop + "/cart/change.js", data=_json.dumps({"id": str(vid), "quantity": 99}).encode(), headers=hdr), timeout=timeout)
+        d = _json.load(r)
+        for it in d.get("items", []):
+            if str(it.get("variant_id")) == str(vid):
+                return 99 if it["quantity"] >= 99 else it["quantity"]
+        return 99
+    except _ue.HTTPError as e:
+        m = _re.search(r"Only (\d+) items", e.read().decode("utf-8", "replace"))
+        return int(m.group(1)) if m else None
+    except Exception:
+        return None
 
 def _format_size_with_qty(sizes, size_stocks):
     if not size_stocks:
@@ -942,6 +974,16 @@ def send_telegram_alert(product, sizes, url, size_stocks=None, ack_link=None):
         repeat_count = int(os.getenv("TELEGRAM_REPEAT_COUNT", "3"))
         interval = float(os.getenv("TELEGRAM_INTERVAL", "10.0"))
 
+        if size_stocks:
+            import time as _t
+            # 컬티즘 Shopify 429 방지: 재고 있는(품절 아닌) 사이즈만, 조회 간 간격(기본 2초)을 두고 조회
+            _probe = [s for s in size_stocks if s.get("id") and not s.get("soldout") and not isinstance(s.get("qty"), int)]
+            for _i, _ss in enumerate(_probe):
+                if _i:
+                    _t.sleep(float(os.getenv("QTY_PROBE_GAP", "2.0")))
+                _q = variant_qty(_ss["id"])
+                if isinstance(_q, int):
+                    _ss["qty"] = _q
         sizes_line = _format_size_with_qty(sizes, size_stocks)
         message = f"🔔 재고 알림!\n\n상품: {product}\n사이즈: {sizes_line}\n\n{url}"
         if ack_link:
