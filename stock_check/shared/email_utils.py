@@ -11,6 +11,9 @@ import smtplib
 from pathlib import Path
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import re as _re
+import html as _html
 
 from dotenv import load_dotenv
 
@@ -113,7 +116,10 @@ def send_stock_alert(site_name, product, sizes, url, dedup_prefix=None, ack_link
             body_lines.append(f"▶ 이 알림 그만 받기(ACK): {ack_link}")
         body = "\n".join(body_lines)
 
-        msg = MIMEText(body, "plain", "utf-8")
+        _hb = _re.compile(r"(https?://[^\s<>\"]+)").sub(r'<a href="\1">\1</a>', _html.escape(body)).replace("\n", "<br>\n")
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        msg.attach(MIMEText(f'<html><body style="font-family:sans-serif;font-size:14px">{_hb}</body></html>', "html", "utf-8"))
         msg["Subject"] = subject
         msg["From"] = smtp_user
         msg["To"] = ", ".join(recipients)
