@@ -612,7 +612,9 @@ def verify_product_match(driver, keyword):
         product_title_lower = product_title.lower()
         
         # URL도 확인
-        current_url = driver.current_url.lower()
+        # 쿼리스트링 제거 — predictive search의 ?_psq=검색어 가 URL에 박혀
+        # 모든 키워드가 URL에서 트리비얼하게 매칭돼 유사상품 오수락되는 것 방지
+        current_url = driver.current_url.lower().split("?", 1)[0]
         log(f"현재 URL: {current_url}", "DEBUG")
         
         # 브랜드명(첫 번째 단어)은 필수로 매칭되어야 함
