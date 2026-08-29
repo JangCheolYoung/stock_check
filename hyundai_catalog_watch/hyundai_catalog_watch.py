@@ -305,6 +305,39 @@ def send_telegram(text):
         return False
 
 
+def send_email(subject, body):
+    """shared/.env 의 SMTP 설정으로 이메일 발송(컬티즘/리바이스와 동일 채널)."""
+    if os.getenv("HCW_EMAIL_ENABLE", "1") not in ("1", "true", "yes", "on"):
+        return False
+    host = os.getenv("SMTP_SERVER")
+    port = int(os.getenv("SMTP_PORT", "587"))
+    user = os.getenv("SMTP_USER")
+    pw = os.getenv("SMTP_PASSWORD")
+    rcpts = [r.strip() for r in (os.getenv("EMAIL_RECIPIENTS") or "").split(",") if r.strip()]
+    if not (host and user and pw and rcpts):
+        log("이메일 설정 불완전 — 발송 스킵")
+        return False
+    if DRY_RUN:
+        log(f"[DRY_RUN] 이메일: {subject}")
+        return True
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"] = user
+        msg["To"] = ", ".join(rcpts)
+        s = smtplib.SMTP(host, port, timeout=20)
+        s.starttls()
+        s.login(user, pw)
+        s.sendmail(user, rcpts, msg.as_string())
+        s.quit()
+        return True
+    except Exception as e:
+        log(f"이메일 발송 실패: {str(e)[:120]}")
+        return False
+
+
 def fmt_sizes(cur, only=None):
     parts = []
     for s in (only if only is not None else available_sizes(cur["sizes"])):
@@ -350,14 +383,20 @@ def save_state(snap, ever_seen):
 
 
 def _emit(events):
-    """이벤트 알림 발송 + 로그. 발송건수 반환."""
-    sent = 0
+    """이벤트 알림 발송(텔레그램+이메일) + 로그. 텔레그램 발송건수 반환."""
+    tg = em = 0
     for ev in events:
-        if send_telegram(alert_text(ev)):
-            sent += 1
+        body = alert_text(ev)
+        subj = body.split("\n", 1)[0]
+        if send_telegram(body):
+            tg += 1
+        if send_email(subj, body):
+            em += 1
         log(f"  · {ev['type']} {ev['code']} 사이즈={ev.get('sizes')}")
         time.sleep(0.5)
-    return sent
+    if events:
+        log(f"  발송: 텔레그램 {tg} / 이메일 {em}")
+    return tg
 
 
 def run_full():
