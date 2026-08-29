@@ -284,8 +284,9 @@ def diff_and_alerts(prev, snap, ever_seen):
 
 # ---------------- 텔레그램 ----------------
 def send_telegram(text):
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat = os.getenv("TELEGRAM_CHAT_ID")
+    # 더현대 전용 봇 우선(HCW_*), 없으면 shared/.env 공용(TELEGRAM_*) 폴백
+    token = os.getenv("HCW_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    chat = os.getenv("HCW_TELEGRAM_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat:
         log("텔레그램 토큰/챗 없음 — 발송 스킵")
         return False
