@@ -1,8 +1,8 @@
 [Unit]
-Description=Run Hyundai RRL catalog watch every 30 minutes
+Description=Run Hyundai RRL catalog full sweep every 10 minutes
 
 [Timer]
-OnCalendar=*-*-* *:00/30:00
+OnCalendar=*-*-* *:00/10:00
 Persistent=true
 Unit=hyundai-catalog-watch.service
 

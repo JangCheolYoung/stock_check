@@ -12,7 +12,7 @@
 
 ## 배포 (103 서버)
 - 스크립트: `/opt/hyundai-catalog-watch/hyundai_catalog_watch.py`
-- systemd: `hyundai-catalog-watch.{service,timer}` (30분 주기). 옛 `stock-check-hyundai-scheduler.timer` 는 disable.
+- systemd: `hyundai-catalog-watch.{service,timer}` — **full 모드 10분 주기**(`OnCalendar=*:00/10`)로 신제품+사이즈재입고 모두 10분내 감지. 옛 `stock-check-hyundai-scheduler.timer` disable. `hyundai-catalog-discover.{service,timer}`(HCW_MODE=discover, HTTP전용 경량)는 full 10분화로 **불필요해져 disable**(부하 줄이려 full을 30분으로 낮출 때 재사용 가능).
 - 로그인/텔레그램 자격증명은 `/opt/stock_check/stock_check/shared/.env` 재사용(HYUNDAI_LOGIN_*, TELEGRAM_*).
 
 ## env
