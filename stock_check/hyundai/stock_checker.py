@@ -961,8 +961,28 @@ def check_single_stock(target):
             time.sleep(0.4)
 
         if not clicked:
-            log(f"{keyword} - 검색 결과 없음/클릭 실패", "INFO")
-            return {"status": StockStatus.PRODUCT_NOT_FOUND.value, "product": keyword}
+            # 클릭 실패 원인 구분: 검색결과에 상품 카드가 아예 없으면 = 품절/미노출(정상),
+            # 카드는 있는데 클릭이 안 됐으면 = 사이트 구조 변경 등 '진짜 문제'.
+            # (더현대는 품절 상품을 검색결과에서 제외하므로, 품절이면 카드 0개가 정상이다.)
+            try:
+                cards = driver.find_elements(By.CSS_SELECTOR, SEL_PRODUCT_CARD)
+            except Exception:
+                cards = []
+            if not cards:
+                log(f"{keyword} - 품절/미노출(검색결과 상품 없음) — 정상 처리", "INFO")
+                return {"status": StockStatus.OUT_OF_STOCK.value, "product": keyword}
+            # 여기 도달 = 검색결과 상품은 있는데 클릭 실패 → 진짜 오류로 취급(오류율 알림 대상)
+            log(
+                f"{keyword} - ⚠️ 검색결과 {len(cards)}개 존재하나 상품 클릭 실패 "
+                f"(사이트 구조 변경 의심) url={driver.current_url}",
+                "ERROR",
+            )
+            _dump_failure(driver, keyword, "product_click_failed")
+            return {
+                "status": StockStatus.PAGE_ERROR.value,
+                "product": keyword,
+                "error": "product click failed despite search results",
+            }
 
         # 3) 구매하기 클릭 → 옵션 Drawer → 사이즈 listbox 펼침
         opened = click_buy_and_open_size_list(driver)
