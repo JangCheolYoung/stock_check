@@ -74,6 +74,35 @@ def log(msg):
         pass
 
 
+# ---- 크로스프로세스 락 (full/discover 동시 실행 방지, mkdir 원자적) ----
+LOCK_DIR = os.getenv("HCW_LOCK", "/tmp/hyundai-catalog-watch.lock")
+LOCK_STALE_SEC = 1200  # 20분 넘은 락은 죽은 것으로 간주
+
+
+def acquire_lock():
+    try:
+        os.mkdir(LOCK_DIR)
+        return True
+    except FileExistsError:
+        try:
+            if time.time() - os.stat(LOCK_DIR).st_mtime > LOCK_STALE_SEC:
+                os.rmdir(LOCK_DIR)
+                os.mkdir(LOCK_DIR)
+                return True
+        except Exception:
+            pass
+        return False
+    except Exception:
+        return True  # 락 자체 실패 시 진행(감시 우선)
+
+
+def release_lock():
+    try:
+        os.rmdir(LOCK_DIR)
+    except Exception:
+        pass
+
+
 # ---------------- 디스커버리 (HTTP) ----------------
 def _api_page(page):
     q = urllib.parse.urlencode({
@@ -319,10 +348,22 @@ def save_state(snap, ever_seen):
     os.replace(tmp, STATE_PATH)
 
 
-def main():
+def _emit(events):
+    """이벤트 알림 발송 + 로그. 발송건수 반환."""
+    sent = 0
+    for ev in events:
+        if send_telegram(alert_text(ev)):
+            sent += 1
+        log(f"  · {ev['type']} {ev['code']} 사이즈={ev.get('sizes')}")
+        time.sleep(0.5)
+    return sent
+
+
+def run_full():
+    """전체 사이클: 디스커버리 + 전체 사이즈 스윕 + diff(제품/사이즈 단위) + 알림."""
     t0 = time.time()
     log("=" * 50)
-    log("더현대 RRL 카탈로그 감시 시작")
+    log("[full] 더현대 RRL 카탈로그 감시 시작")
     prev = load_state()
     first_run = prev is None
     ever_seen = set((prev or {}).get("ever_seen", []))
@@ -339,24 +380,63 @@ def main():
             ever_seen.add(code)
         save_state(snap, ever_seen)
         log(f"첫 실행 baseline 저장 ({len(snap)}개) — 무알림")
-        log(f"완료 ({time.time()-t0:.0f}초)")
+        log(f"[full] 완료 ({time.time()-t0:.0f}초)")
         return
 
     events = diff_and_alerts(prev, snap, ever_seen)
     for code in snap:
         ever_seen.add(code)
-
-    log(f"변동 이벤트: {len(events)}건")
-    sent = 0
-    for ev in events:
-        txt = alert_text(ev)
-        if send_telegram(txt):
-            sent += 1
-        log(f"  · {ev['type']} {ev['code']} 사이즈={ev.get('sizes')}")
-        time.sleep(0.5)
-
+    log(f"[full] 변동 이벤트: {len(events)}건")
+    sent = _emit(events)
     save_state(snap, ever_seen)
-    log(f"완료: 이벤트 {len(events)} / 발송 {sent} ({time.time()-t0:.0f}초)")
+    log(f"[full] 완료: 이벤트 {len(events)} / 발송 {sent} ({time.time()-t0:.0f}초)")
+
+
+def run_discover():
+    """경량 사이클(10분): HTTP 디스커버리로 '새 제품/재입고(제품단위)'만 빠르게 감지.
+    신규 slitmCd 만 사이즈 판독(few) 후 알림·상태 병합. 기존 제품 사이즈는 건드리지 않음
+    (사이즈 단위 재입고는 full 사이클이 담당). baseline 없으면 스킵(full 이 먼저 만들어야 함)."""
+    t0 = time.time()
+    log("[discover] 경량 디스커버리 시작")
+    prev = load_state()
+    if prev is None:
+        log("[discover] baseline 없음 — full 사이클 먼저 필요, 스킵")
+        return
+    products = discover()
+    if not products:
+        log("[discover] 구매가능 0개 — 스킵(상태 유지)")
+        return
+    prev_products = prev.get("products", {})
+    ever_seen = set(prev.get("ever_seen", []))
+    new_ids = [sid for sid in products if sid not in prev_products]
+    log(f"[discover] 신규(제품단위) 후보: {len(new_ids)}개")
+    if not new_ids:
+        log(f"[discover] 변동 없음 ({time.time()-t0:.0f}초)")
+        return
+    subset = {sid: products[sid] for sid in new_ids}
+    size_results = sweep_sizes(subset)
+    snap_new = build_snapshot(subset, size_results, prev)
+    events = diff_and_alerts(prev, snap_new, ever_seen)
+    prev_products.update(snap_new)         # 신규만 병합(기존 제거 안 함 — full 이 정리)
+    for sid in snap_new:
+        ever_seen.add(sid)
+    sent = _emit(events)
+    save_state(prev_products, ever_seen)
+    log(f"[discover] 완료: 신규 {len(new_ids)} / 이벤트 {len(events)} / 발송 {sent} ({time.time()-t0:.0f}초)")
+
+
+def main():
+    mode = os.getenv("HCW_MODE", "full").strip().lower()
+    if not acquire_lock():
+        log(f"[{mode}] 다른 사이클 실행 중 — 스킵")
+        return
+    try:
+        if mode == "discover":
+            run_discover()
+        else:
+            run_full()
+    finally:
+        release_lock()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Hyundai RRL discover every 10 min (offset :05..:55 from full sweep)
+
+[Timer]
+OnCalendar=*-*-* *:05/10:00
+Persistent=true
+Unit=hyundai-catalog-discover.service
+
+[Install]
+WantedBy=timers.target

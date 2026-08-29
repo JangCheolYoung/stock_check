@@ -1,0 +1,14 @@
+[Unit]
+Description=Hyundai RRL Catalog Discover (HTTP fast new-product check)
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/stock_check
+Environment="PYTHONPATH=/opt/stock_check"
+Environment="HCW_MODE=discover"
+Environment="HCW_WORKERS=2"
+TimeoutStartSec=600
+ExecStart=/opt/stock_check/.venv/bin/python /opt/hyundai-catalog-watch/hyundai_catalog_watch.py
