@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Hyundai RRL catalog watch every 30 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/30:00
+Persistent=true
+Unit=hyundai-catalog-watch.service
+
+[Install]
+WantedBy=timers.target

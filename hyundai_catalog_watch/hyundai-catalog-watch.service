@@ -1,0 +1,14 @@
+[Unit]
+Description=Hyundai RRL Catalog Stock Watch (oneshot)
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/stock_check
+Environment="PYTHONPATH=/opt/stock_check"
+Environment="HCW_WORKERS=2"
+# 전체 사이즈 스윕이 ~10분 걸리므로 oneshot 기본 90s 타임아웃을 20분으로 확장
+TimeoutStartSec=1200
+ExecStart=/opt/stock_check/.venv/bin/python /opt/hyundai-catalog-watch/hyundai_catalog_watch.py
