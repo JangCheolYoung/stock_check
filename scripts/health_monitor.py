@@ -85,8 +85,9 @@ def _email_enabled() -> bool:
 def telegram_send(text: str) -> bool:
     if not _telegram_enabled():
         return False
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat = os.getenv("TELEGRAM_CHAT_ID")
+    # 헬스/시스템 알림은 브릿지봇 우선(HEALTH_TELEGRAM_BOT_TOKEN), 없으면 공용 폴백
+    token = os.getenv("HEALTH_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    chat = os.getenv("HEALTH_TELEGRAM_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat:
         return False
     try:
@@ -269,31 +270,37 @@ def mode_resource() -> int:
 
 
 def mode_daily() -> int:
+    """매일 점검 — '문제 있을 때만' 브릿지봇/이메일로 발송(정상이면 무발송)."""
     r = collect_resources()
-    admin = service_status("stock-check-admin")
-    cultizm_timer = service_status("stock-check-cultizm-scheduler.timer")
-    hyundai_timer = service_status("stock-check-hyundai-scheduler.timer")
-    legacy_timer = service_status("stock-check-scheduler.timer")
-    cycle_lines = "\n".join(site_cycle_lines())
-
+    # 현재 운영 유닛만 점검(옛 hyundai-scheduler/legacy 는 은퇴 → 제외)
+    checks = {
+        "stock-check-admin": service_status("stock-check-admin"),
+        "stock-check-cultizm": service_status("stock-check-cultizm-scheduler.timer"),
+        "hyundai-catalog-watch": service_status("hyundai-catalog-watch.timer"),
+    }
+    problems = []
+    for name, st in checks.items():
+        if st not in ("active", "activating"):
+            problems.append(f"- 서비스 {name}: {st}")
+    if r["cpu_pct"] >= CPU_TH:
+        problems.append(f"- CPU {r['cpu_pct']:.1f}% >= {CPU_TH}%")
+    if r["mem_pct"] >= MEM_TH:
+        problems.append(f"- 메모리 {r['mem_pct']:.1f}% >= {MEM_TH}%")
+    if r["disk_pct"] >= DISK_TH:
+        problems.append(f"- 디스크 {r['disk_pct']:.1f}% >= {DISK_TH}%")
+    if not problems:
+        print("[health] daily: 정상 - 알림 생략")
+        return 0
     body = (
-        f"📊 [{HOSTNAME}] stock-check 일일 헬스 리포트\n"
-        f"기준 시각: {_now_kst().strftime('%Y-%m-%d %H:%M:%S')} KST\n\n"
-        f"서비스 상태:\n"
-        f"- stock-check-admin       : {admin}\n"
-        f"- stock-check-cultizm     : {cultizm_timer}\n"
-        f"- stock-check-hyundai     : {hyundai_timer}\n"
-        f"- stock-check-scheduler   : {legacy_timer}\n\n"
-        f"자원 사용:\n"
-        f"- CPU      : {r['cpu_pct']:.1f}%\n"
-        f"- 메모리   : {r['mem_pct']:.1f}% ({r['mem_used_mb']}/{r['mem_total_mb']}MB)\n"
-        f"- 디스크 / : {r['disk_pct']:.1f}% ({r['disk_used_gb']}/{r['disk_total_gb']}GB)\n\n"
-        f"최근 로그:\n"
-        f"{cycle_lines}\n"
+        f"⚠️ [{HOSTNAME}] stock-check 일일 점검 - 문제 감지\n"
+        f"{_now_kst().strftime('%Y-%m-%d %H:%M:%S')} KST\n\n"
+        + "\n".join(problems) + "\n\n"
+        f"자원: CPU {r['cpu_pct']:.1f}% / 메모리 {r['mem_pct']:.1f}% / 디스크 {r['disk_pct']:.1f}%\n\n"
+        f"최근 로그:\n" + "\n".join(site_cycle_lines()) + "\n"
     )
     ok_tg = telegram_send(body)
-    ok_em = email_send("일일 헬스 리포트", body)
-    print(f"[health] daily telegram={ok_tg} email={ok_em}")
+    ok_em = email_send("일일 점검 - 문제 감지", body)
+    print(f"[health] daily problems={len(problems)} telegram={ok_tg} email={ok_em}")
     return 0
 
 
