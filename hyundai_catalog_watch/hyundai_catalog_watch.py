@@ -236,9 +236,67 @@ def available_sizes(size_map):
     return sorted([k for k, v in size_map.items() if not v.get("soldout")])
 
 
-def build_snapshot(products, size_results, prev):
+# ---------------- 쿠폰/프로모션(비카드) 신호 ----------------
+MAXBNFT_URL = "https://hi.thehyundai.com/proxy/v1/pd/item/prmo/maxBnftList"
+
+
+def fetch_coupon(slitm):
+    """maxBnftList 로 쿠폰/프로모션(비카드) 적용여부 판정.
+    반환 {applicable, aplyDcPrc, sellPrc, promos:[명칭]} 또는 None(조회실패).
+    ※ step8b(카드 즉시할인)은 '쿠폰'이 아니라 제외. 비카드 프로모(step1~5) 또는 적용가<정가 = 적용."""
+    try:
+        q = urllib.parse.urlencode({
+            "alliRefCd": "800", "tcCode": "0000000800", "slitmCd": slitm,
+            "sectId": "0", "preview": "", "previewVipGrade": "",
+        })
+        req = urllib.request.Request(f"{MAXBNFT_URL}?{q}", headers={
+            "User-Agent": "Mozilla/5.0", "Accept": "application/json",
+            "Referer": "https://hi.thehyundai.com/",
+        })
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = (json.loads(r.read().decode("utf-8", "replace")) or {}).get("data") or {}
+    except Exception:
+        return None
+    sell = d.get("sellPrc")
+    aply = d.get("aplyDcPrc")
+    promos = []
+    st1 = d.get("step1BnftInfo") or {}
+    if st1.get("prmoNo"):
+        promos.append(st1.get("prmoNm") or "프로모션")
+    for k in ("step2BnftList", "step3BnftList", "step4BnftList", "step5BnftList"):
+        for e in (d.get(k) or []):
+            if e.get("prmoNo"):
+                promos.append(e.get("prmoNm") or "프로모션")
+    applicable = bool(promos) or (
+        isinstance(sell, int) and isinstance(aply, int) and aply < sell
+    )
+    return {"applicable": applicable, "aplyDcPrc": aply, "sellPrc": sell, "promos": promos}
+
+
+def sweep_coupons(products):
+    """products 전체의 쿠폰신호를 HTTP로 병렬 수집(경량). 반환 dict[slitmCd]=coupon|None"""
+    codes = list(products.keys())
+    out = {}
+    if not codes:
+        return out
+    t0 = time.time()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(fetch_coupon, c): c for c in codes}
+        for f in concurrent.futures.as_completed(futs):
+            try:
+                out[futs[f]] = f.result()
+            except Exception:
+                out[futs[f]] = None
+    ok = sum(1 for v in out.values() if v)
+    onn = sum(1 for v in out.values() if v and v.get("applicable"))
+    log(f"쿠폰 스윕: {len(codes)}개 중 {ok} 조회 / 현재 적용중 {onn}개 ({time.time()-t0:.0f}초)")
+    return out
+
+
+def build_snapshot(products, size_results, prev, coupon_results=None):
     """현재 스냅샷 구성. 판독 실패(None)한 제품은 이전 값 유지(오탐 방지)."""
     prev_products = (prev or {}).get("products", {})
+    coupon_results = coupon_results or {}
     snap = {}
     now = int(time.time())
     for code, meta in products.items():
@@ -249,12 +307,18 @@ def build_snapshot(products, size_results, prev):
         else:
             sizes = sizes_to_map(res)
             read_ok = True
+        cres = coupon_results.get(code)
+        if cres is None:  # 쿠폰 조회 실패 -> 이전 쿠폰상태 유지(오탐 방지)
+            coupon = (prev_products.get(code) or {}).get("coupon")
+        else:
+            coupon = cres
         snap[code] = {
             "name": meta["name"],
             "slitmCd": meta["slitmCd"],
             "price": meta["price"],
             "url": meta["url"],
             "sizes": sizes,
+            "coupon": coupon,
             "read_ok": read_ok,
             "last_seen": now,
         }
@@ -279,6 +343,11 @@ def diff_and_alerts(prev, snap, ever_seen):
             newly = [s for s in cur_avail if s not in prev_avail]
             if newly:
                 events.append({"type": "restock_size", "code": code, "cur": cur, "sizes": newly})
+            # 쿠폰/프로모션 '미적용 -> 적용' 전환 감지(카드할인 제외)
+            prev_c = prev_products[code].get("coupon") or {}
+            cur_c = cur.get("coupon") or {}
+            if cur_c.get("applicable") and prev_c and not prev_c.get("applicable"):
+                events.append({"type": "coupon_on", "code": code, "cur": cur})
     return events
 
 
@@ -348,6 +417,15 @@ def fmt_sizes(cur, only=None):
 
 def alert_text(ev):
     cur = ev["cur"]
+    if ev["type"] == "coupon_on":
+        c = cur.get("coupon") or {}
+        sell, aply = c.get("sellPrc"), c.get("aplyDcPrc")
+        promo = ", ".join(c.get("promos") or []) or "쿠폰/프로모션"
+        lines = ["🎟️ [더현대 RRL] 쿠폰/프로모션 적용 가능", cur["name"], f"혜택: {promo}"]
+        if isinstance(sell, int) and isinstance(aply, int) and aply < sell:
+            lines.append(f"정가 {sell:,}원 → 적용가 {aply:,}원")
+        lines.append(cur["url"])
+        return "\n".join(lines)
     head = {
         "new_product": "🆕 [더현대 RRL] 새 제품 구매가능",
         "restock_product": "🟢 [더현대 RRL] 재입고 (전체품절→구매가능)",
@@ -413,7 +491,8 @@ def run_full():
         log("구매가능 제품 0개 — 디스커버리 실패 의심, 이번 사이클 중단(상태 유지)")
         return
     size_results = sweep_sizes(products)
-    snap = build_snapshot(products, size_results, prev)
+    coupon_results = sweep_coupons(products)
+    snap = build_snapshot(products, size_results, prev, coupon_results)
 
     if first_run:
         for code in snap:
@@ -455,7 +534,7 @@ def run_discover():
         return
     subset = {sid: products[sid] for sid in new_ids}
     size_results = sweep_sizes(subset)
-    snap_new = build_snapshot(subset, size_results, prev)
+    snap_new = build_snapshot(subset, size_results, prev, sweep_coupons(subset))
     events = diff_and_alerts(prev, snap_new, ever_seen)
     prev_products.update(snap_new)         # 신규만 병합(기존 제거 안 함 — full 이 정리)
     for sid in snap_new:
