@@ -423,6 +423,14 @@ def alert_text(ev):
             lines.append(f"최대혜택가 {mb:,}원")
         lines.append(cur["url"])
         return "\n".join(lines)
+    if ev["type"] == "coupon_off":
+        lines = ["🚫 [더현대 RRL] 쿠폰 적용 종료", cur["name"]]
+        pcs = cur.get("prev_coupons") or []
+        if pcs:
+            lines.append("이전 적용쿠폰: " + ", ".join(pcs))
+        lines.append("→ 현재 RRL 제품 쿠폰 미적용")
+        lines.append(cur["url"])
+        return "\n".join(lines)
     head = {
         "new_product": "🆕 [더현대 RRL] 새 제품 구매가능",
         "restock_product": "🟢 [더현대 RRL] 재입고 (전체품절→구매가능)",
@@ -506,14 +514,21 @@ def run_full():
         return
 
     events = diff_and_alerts(prev, snap, ever_seen)
-    # 쿠폰 '미적용 -> 적용' 전환이면 1회 알림
-    if (cur_coupon and cur_coupon.get("applicable")
-            and prev_coupon and not prev_coupon.get("applicable")):
-        events.append({"type": "coupon_on", "code": "RRL", "cur": {
-            "name": cur_coupon.get("product") or "RRL 제품",
-            "url": cur_coupon.get("url") or "https://hi.thehyundai.com/",
-            "price": None, "coupon": cur_coupon,
-        }})
+    # 쿠폰 적용여부 전환이면 1회 알림(적용/해제 양방향)
+    if cur_coupon and prev_coupon:
+        was = bool(prev_coupon.get("applicable"))
+        now = bool(cur_coupon.get("applicable"))
+        if now != was:
+            events.append({
+                "type": "coupon_on" if now else "coupon_off",
+                "code": "RRL",
+                "cur": {
+                    "name": cur_coupon.get("product") or "RRL 제품",
+                    "url": cur_coupon.get("url") or "https://hi.thehyundai.com/",
+                    "price": None, "coupon": cur_coupon,
+                    "prev_coupons": prev_coupon.get("coupons") or [],
+                },
+            })
     for code in snap:
         ever_seen.add(code)
     log(f"[full] 변동 이벤트: {len(events)}건 (쿠폰적용={bool(cur_coupon and cur_coupon.get('applicable'))})")
