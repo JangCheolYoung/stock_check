@@ -173,6 +173,20 @@ def send_system_alert(site_name, alert_type, subject, body):
         return False
 
     try:
+        # 시스템/운영 알림을 브릿지봇 텔레그램으로 발송(이메일 설정과 무관). 하루 1회 dedup.
+        try:
+            import urllib.request as _u, urllib.parse as _up
+            _tok = os.getenv("HEALTH_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+            _chat = os.getenv("HEALTH_TELEGRAM_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")
+            if _tok and _chat:
+                _text = f"⚠️ [{site_name.upper()} 시스템] {subject}\n\n{body}"
+                _data = _up.urlencode({"chat_id": _chat, "text": _text}).encode()
+                _u.urlopen(_u.Request(f"https://api.telegram.org/bot{_tok}/sendMessage", data=_data), timeout=10)
+                _a = load_system_alerts(site_name)
+                _a[alert_type] = {"last_sent": datetime.now().strftime("%Y-%m-%d"), "message": subject, "timestamp": datetime.now().isoformat()}
+                save_system_alerts(site_name, _a)
+        except Exception as _e:
+            print(f"{site_name} 시스템 알림 텔레그램 실패: {_e}")
         smtp_server = os.getenv("NAVER_SMTP_SERVER", "smtp.naver.com")
         smtp_port = int(os.getenv("NAVER_SMTP_PORT", "587"))
         smtp_user = os.getenv("NAVER_SMTP_USER")
