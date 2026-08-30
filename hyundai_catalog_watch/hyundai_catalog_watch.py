@@ -437,13 +437,14 @@ def alert_text(ev):
         "restock_size": "🟢 [더현대 RRL] 사이즈 재입고",
     }[ev["type"]]
     price = f"{cur['price']:,}원" if isinstance(cur.get("price"), int) else str(cur.get("price"))
-    lines = [
-        head,
-        cur["name"],
-        f"가격: {price}",
-        f"구매가능 사이즈: {fmt_sizes(cur, ev.get('sizes'))}",
-        cur["url"],
-    ]
+    lines = [head, cur["name"], f"가격: {price}"]
+    if ev["type"] == "restock_size":
+        # 이번에 새로 재입고된 사이즈 + 현재 전체 구매가능 사이즈(오해 방지)
+        lines.append(f"재입고 사이즈: {fmt_sizes(cur, ev.get('sizes'))}")
+        lines.append(f"전체 구매가능: {fmt_sizes(cur)}")
+    else:
+        lines.append(f"구매가능 사이즈: {fmt_sizes(cur, ev.get('sizes'))}")
+    lines.append(cur["url"])
     return "\n".join(lines)
 
 
