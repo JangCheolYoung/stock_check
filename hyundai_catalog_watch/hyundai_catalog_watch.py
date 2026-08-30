@@ -160,17 +160,50 @@ def discover():
 
 
 # ---------------- 사이즈 판독 (selenium, 워커풀) ----------------
+# 로그인 상세페이지의 '상품 쿠폰 할인' 섹션 파싱용 JS.
+# 회원쿠폰(매니아 % 쿠폰 등)은 로그인 상태 상세페이지에만 뜸(비로그인 API엔 없음).
+_COUPON_JS = r"""() => {
+  const labels = Array.from(document.querySelectorAll("[class*='BenefitCalc_label']"));
+  const coupons = Array.from(new Set(
+    labels.map(l => (l.textContent || '').trim()).filter(t => t.includes('쿠폰'))
+  ));
+  let maxBenefit = null;
+  const bt = (document.body && document.body.innerText) || '';
+  const m = bt.match(/최대혜택가\s*([0-9,]+)\s*원/);
+  if (m) maxBenefit = parseInt(m[1].replace(/,/g, ''), 10);
+  return {coupons: coupons, maxBenefit: maxBenefit};
+}"""
+
+
+def _parse_coupon(driver):
+    """상세페이지에서 쿠폰 적용여부 파싱. 반환 {applicable, coupons:[명칭], maxBenefit} 또는 None.
+    혜택영역 렌더 지연 대비 폴링(쿠폰 or 최대혜택가 뜨면 즉시 종료 → 대개 <1s, 최대 HCW_COUPON_WAIT_SEC)."""
+    deadline = time.time() + float(os.getenv("HCW_COUPON_WAIT_SEC", "4"))
+    r = {}
+    while True:
+        try:
+            r = driver.execute_script("return (" + _COUPON_JS + ")()") or {}
+        except Exception:
+            r = {}
+        if r.get("coupons") or r.get("maxBenefit") is not None or time.time() >= deadline:
+            break
+        time.sleep(0.4)
+    coupons = r.get("coupons") or []
+    return {"applicable": len(coupons) > 0, "coupons": coupons, "maxBenefit": r.get("maxBenefit")}
+
+
 def _read_one(driver, slitm):
-    """slitmCd 로 상세페이지 직접 이동 후 사이즈+수량 판독.
-    (스타일코드 재검색은 일부 코드가 검색 0을 반환해 불안정 -> 직접 URL 이 가장 견고+빠름)
-    반환 list[{size,qty,soldout}] 또는 None(판독실패)."""
+    """slitmCd 로 로그인 상세페이지 직접 이동 → 쿠폰 섹션 파싱 + 사이즈/수량 판독.
+    반환 {"sizes": list|None, "coupon": dict|None} 또는 None(페이지 로드 자체 실패)."""
     try:
         driver.get(f"https://hi.thehyundai.com/product/{slitm}")
         sc.wait_for_ready(driver, timeout_sec=int(os.getenv("HCW_READY_SEC", "12")))
         time.sleep(float(os.getenv("HCW_HYDRATION_SEC", "1.5")))
-        if not sc.click_buy_and_open_size_list(driver):
-            return None
-        return sc.get_size_stocks(driver)
+        coupon = _parse_coupon(driver)  # 메인 페이지의 '상품 쿠폰 할인' 섹션(드로어 열기 전)
+        sizes = None
+        if sc.click_buy_and_open_size_list(driver):
+            sizes = sc.get_size_stocks(driver)
+        return {"sizes": sizes, "coupon": coupon}
     except Exception as e:
         log(f"[{slitm}] 판독 예외: {str(e)[:100]}")
         return None
@@ -197,7 +230,7 @@ def _worker(codes):
 
 
 def sweep_sizes(products):
-    """products 의 모든 코드에 대해 사이즈 판독. 반환 dict[code] = list[{size,qty,soldout}] | None"""
+    """products 의 모든 코드에 대해 사이즈+쿠폰 판독. 반환 dict[code] = {"sizes":list|None,"coupon":dict|None} | None"""
     codes = list(products.keys())
     if not codes:
         return {}
@@ -214,8 +247,9 @@ def sweep_sizes(products):
                 results.update(f.result() or {})
             except Exception as e:
                 log(f"워커 결과 수집 실패: {str(e)[:100]}")
-    ok = sum(1 for v in results.values() if v)
-    log(f"사이즈 스윕: {len(codes)}개 중 {ok}개 판독 성공 ({time.time()-t0:.0f}초, 워커 {WORKERS})")
+    ok = sum(1 for v in results.values() if v and v.get("sizes"))
+    cpn = sum(1 for v in results.values() if v and (v.get("coupon") or {}).get("applicable"))
+    log(f"사이즈 스윕: {len(codes)}개 중 {ok}개 판독 성공 / 쿠폰적용 {cpn}개 ({time.time()-t0:.0f}초, 워커 {WORKERS})")
     return results
 
 
@@ -236,82 +270,26 @@ def available_sizes(size_map):
     return sorted([k for k, v in size_map.items() if not v.get("soldout")])
 
 
-# ---------------- 쿠폰/프로모션(비카드) 신호 ----------------
-MAXBNFT_URL = "https://hi.thehyundai.com/proxy/v1/pd/item/prmo/maxBnftList"
-
-
-def fetch_coupon(slitm):
-    """maxBnftList 로 쿠폰/프로모션(비카드) 적용여부 판정.
-    반환 {applicable, aplyDcPrc, sellPrc, promos:[명칭]} 또는 None(조회실패).
-    ※ step8b(카드 즉시할인)은 '쿠폰'이 아니라 제외. 비카드 프로모(step1~5) 또는 적용가<정가 = 적용."""
-    try:
-        q = urllib.parse.urlencode({
-            "alliRefCd": "800", "tcCode": "0000000800", "slitmCd": slitm,
-            "sectId": "0", "preview": "", "previewVipGrade": "",
-        })
-        req = urllib.request.Request(f"{MAXBNFT_URL}?{q}", headers={
-            "User-Agent": "Mozilla/5.0", "Accept": "application/json",
-            "Referer": "https://hi.thehyundai.com/",
-        })
-        with urllib.request.urlopen(req, timeout=15) as r:
-            d = (json.loads(r.read().decode("utf-8", "replace")) or {}).get("data") or {}
-    except Exception:
-        return None
-    sell = d.get("sellPrc")
-    aply = d.get("aplyDcPrc")
-    promos = []
-    st1 = d.get("step1BnftInfo") or {}
-    if st1.get("prmoNo"):
-        promos.append(st1.get("prmoNm") or "프로모션")
-    for k in ("step2BnftList", "step3BnftList", "step4BnftList", "step5BnftList"):
-        for e in (d.get(k) or []):
-            if e.get("prmoNo"):
-                promos.append(e.get("prmoNm") or "프로모션")
-    applicable = bool(promos) or (
-        isinstance(sell, int) and isinstance(aply, int) and aply < sell
-    )
-    return {"applicable": applicable, "aplyDcPrc": aply, "sellPrc": sell, "promos": promos}
-
-
-def sweep_coupons(products):
-    """products 전체의 쿠폰신호를 HTTP로 병렬 수집(경량). 반환 dict[slitmCd]=coupon|None"""
-    codes = list(products.keys())
-    out = {}
-    if not codes:
-        return out
-    t0 = time.time()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(fetch_coupon, c): c for c in codes}
-        for f in concurrent.futures.as_completed(futs):
-            try:
-                out[futs[f]] = f.result()
-            except Exception:
-                out[futs[f]] = None
-    ok = sum(1 for v in out.values() if v)
-    onn = sum(1 for v in out.values() if v and v.get("applicable"))
-    log(f"쿠폰 스윕: {len(codes)}개 중 {ok} 조회 / 현재 적용중 {onn}개 ({time.time()-t0:.0f}초)")
-    return out
-
-
-def build_snapshot(products, size_results, prev, coupon_results=None):
-    """현재 스냅샷 구성. 판독 실패(None)한 제품은 이전 값 유지(오탐 방지)."""
+def build_snapshot(products, size_results, prev):
+    """현재 스냅샷 구성. 판독 실패/부분실패한 제품은 이전 값 유지(오탐 방지).
+    size_results[code] = {"sizes":list|None, "coupon":dict|None} | None."""
     prev_products = (prev or {}).get("products", {})
-    coupon_results = coupon_results or {}
     snap = {}
     now = int(time.time())
     for code, meta in products.items():
         res = size_results.get(code)
-        if res is None:  # 판독 실패 -> 이전 사이즈 유지(있으면)
-            sizes = (prev_products.get(code) or {}).get("sizes", {})
+        prev_e = prev_products.get(code) or {}
+        if res is None:  # 페이지 로드 자체 실패 -> 이전값 유지
+            sizes = prev_e.get("sizes", {})
+            coupon = prev_e.get("coupon")
             read_ok = False
         else:
-            sizes = sizes_to_map(res)
-            read_ok = True
-        cres = coupon_results.get(code)
-        if cres is None:  # 쿠폰 조회 실패 -> 이전 쿠폰상태 유지(오탐 방지)
-            coupon = (prev_products.get(code) or {}).get("coupon")
-        else:
-            coupon = cres
+            szlist = res.get("sizes")
+            sizes = sizes_to_map(szlist) if szlist is not None else prev_e.get("sizes", {})
+            coupon = res.get("coupon")
+            if coupon is None:  # 쿠폰 파싱 실패 -> 이전 유지
+                coupon = prev_e.get("coupon")
+            read_ok = szlist is not None
         snap[code] = {
             "name": meta["name"],
             "slitmCd": meta["slitmCd"],
@@ -343,12 +321,27 @@ def diff_and_alerts(prev, snap, ever_seen):
             newly = [s for s in cur_avail if s not in prev_avail]
             if newly:
                 events.append({"type": "restock_size", "code": code, "cur": cur, "sizes": newly})
-            # 쿠폰/프로모션 '미적용 -> 적용' 전환 감지(카드할인 제외)
-            prev_c = prev_products[code].get("coupon") or {}
-            cur_c = cur.get("coupon") or {}
-            if cur_c.get("applicable") and prev_c and not prev_c.get("applicable"):
-                events.append({"type": "coupon_on", "code": code, "cur": cur})
     return events
+
+
+def representative_coupon(snap):
+    """RRL 쿠폰은 브랜드 공통 → 재고있는 대표 제품 1개의 쿠폰상태로 판정(제품별 알림 스팸 방지).
+    반환 {applicable, coupons, maxBenefit, product, url} 또는 None."""
+    rep = None
+    for cur in snap.values():
+        if available_sizes(cur.get("sizes") or {}) and cur.get("coupon") is not None:
+            rep = cur
+            break
+    if rep is None:  # 재고 대표 없으면 쿠폰정보 있는 아무 제품
+        for cur in snap.values():
+            if cur.get("coupon") is not None:
+                rep = cur
+                break
+    if rep is None:
+        return None
+    rc = rep["coupon"]
+    return {"applicable": bool(rc.get("applicable")), "coupons": rc.get("coupons") or [],
+            "maxBenefit": rc.get("maxBenefit"), "product": rep["name"], "url": rep["url"]}
 
 
 # ---------------- 텔레그램 ----------------
@@ -419,11 +412,15 @@ def alert_text(ev):
     cur = ev["cur"]
     if ev["type"] == "coupon_on":
         c = cur.get("coupon") or {}
-        sell, aply = c.get("sellPrc"), c.get("aplyDcPrc")
-        promo = ", ".join(c.get("promos") or []) or "쿠폰/프로모션"
-        lines = ["🎟️ [더현대 RRL] 쿠폰/프로모션 적용 가능", cur["name"], f"혜택: {promo}"]
-        if isinstance(sell, int) and isinstance(aply, int) and aply < sell:
-            lines.append(f"정가 {sell:,}원 → 적용가 {aply:,}원")
+        cps = c.get("coupons") or []
+        lines = ["🎟️ [더현대 RRL] 쿠폰 적용 가능", cur["name"],
+                 "적용 쿠폰: " + (", ".join(cps) if cps else "쿠폰")]
+        mb = c.get("maxBenefit")
+        price = cur.get("price")
+        if isinstance(mb, int) and isinstance(price, int) and mb < price:
+            lines.append(f"정가 {price:,}원 → 최대혜택가 {mb:,}원")
+        elif isinstance(mb, int):
+            lines.append(f"최대혜택가 {mb:,}원")
         lines.append(cur["url"])
         return "\n".join(lines)
     head = {
@@ -450,13 +447,16 @@ def load_state():
         return None
 
 
-def save_state(snap, ever_seen):
+def save_state(snap, ever_seen, extra=None):
     tmp = STATE_PATH + ".tmp"
-    json.dump({
+    d = {
         "products": snap,
         "ever_seen": sorted(ever_seen),
         "updated": int(time.time()),
-    }, open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
+    }
+    if extra:
+        d.update(extra)
+    json.dump(d, open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
     os.replace(tmp, STATE_PATH)
 
 
@@ -491,23 +491,34 @@ def run_full():
         log("구매가능 제품 0개 — 디스커버리 실패 의심, 이번 사이클 중단(상태 유지)")
         return
     size_results = sweep_sizes(products)
-    coupon_results = sweep_coupons(products)
-    snap = build_snapshot(products, size_results, prev, coupon_results)
+    snap = build_snapshot(products, size_results, prev)
+
+    # RRL 쿠폰(브랜드 공통) 대표신호 — 재고있는 대표 1개로 판정(제품별 스팸 방지)
+    cur_coupon = representative_coupon(snap) or (prev or {}).get("rrl_coupon")
+    prev_coupon = (prev or {}).get("rrl_coupon")
 
     if first_run:
         for code in snap:
             ever_seen.add(code)
-        save_state(snap, ever_seen)
-        log(f"첫 실행 baseline 저장 ({len(snap)}개) — 무알림")
+        save_state(snap, ever_seen, {"rrl_coupon": cur_coupon})
+        log(f"첫 실행 baseline 저장 ({len(snap)}개) — 무알림 (쿠폰적용={bool(cur_coupon and cur_coupon.get('applicable'))})")
         log(f"[full] 완료 ({time.time()-t0:.0f}초)")
         return
 
     events = diff_and_alerts(prev, snap, ever_seen)
+    # 쿠폰 '미적용 -> 적용' 전환이면 1회 알림
+    if (cur_coupon and cur_coupon.get("applicable")
+            and prev_coupon and not prev_coupon.get("applicable")):
+        events.append({"type": "coupon_on", "code": "RRL", "cur": {
+            "name": cur_coupon.get("product") or "RRL 제품",
+            "url": cur_coupon.get("url") or "https://hi.thehyundai.com/",
+            "price": None, "coupon": cur_coupon,
+        }})
     for code in snap:
         ever_seen.add(code)
-    log(f"[full] 변동 이벤트: {len(events)}건")
+    log(f"[full] 변동 이벤트: {len(events)}건 (쿠폰적용={bool(cur_coupon and cur_coupon.get('applicable'))})")
     sent = _emit(events)
-    save_state(snap, ever_seen)
+    save_state(snap, ever_seen, {"rrl_coupon": cur_coupon})
     log(f"[full] 완료: 이벤트 {len(events)} / 발송 {sent} ({time.time()-t0:.0f}초)")
 
 
@@ -534,13 +545,13 @@ def run_discover():
         return
     subset = {sid: products[sid] for sid in new_ids}
     size_results = sweep_sizes(subset)
-    snap_new = build_snapshot(subset, size_results, prev, sweep_coupons(subset))
+    snap_new = build_snapshot(subset, size_results, prev)
     events = diff_and_alerts(prev, snap_new, ever_seen)
     prev_products.update(snap_new)         # 신규만 병합(기존 제거 안 함 — full 이 정리)
     for sid in snap_new:
         ever_seen.add(sid)
     sent = _emit(events)
-    save_state(prev_products, ever_seen)
+    save_state(prev_products, ever_seen, {"rrl_coupon": prev.get("rrl_coupon")})
     log(f"[discover] 완료: 신규 {len(new_ids)} / 이벤트 {len(events)} / 발송 {sent} ({time.time()-t0:.0f}초)")
 
 
