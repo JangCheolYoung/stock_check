@@ -470,19 +470,28 @@ def save_state(snap, ever_seen, extra=None):
 
 
 def _emit(events):
-    """이벤트 알림 발송(텔레그램+이메일) + 로그. 텔레그램 발송건수 반환."""
-    tg = em = 0
+    """알림 발송: 텔레그램은 이벤트별(제품 URL 유용), 이메일은 이번 사이클분을 1통으로 통합. 텔레그램 발송건수 반환."""
+    tg = 0
+    bodies = []
     for ev in events:
         body = alert_text(ev)
-        subj = body.split("\n", 1)[0]
         if send_telegram(body):
             tg += 1
-        if send_email(subj, body):
-            em += 1
+        bodies.append(body)
         log(f"  · {ev['type']} {ev['code']} 사이즈={ev.get('sizes')}")
-        time.sleep(0.5)
+        time.sleep(0.4)
+    em = 0
+    if bodies:
+        n = len(bodies)
+        subject = (bodies[0].split("\n", 1)[0] if n == 1
+                   else f"[더현대 RRL] 재고/쿠폰 알림 {n}건")
+        combined = ("\n\n" + "-" * 30 + "\n\n").join(bodies)
+        if n > 1:
+            combined = f"이번 확인에서 {n}건의 변동이 있었습니다.\n\n" + combined
+        if send_email(subject, combined):
+            em = 1
     if events:
-        log(f"  발송: 텔레그램 {tg} / 이메일 {em}")
+        log(f"  발송: 텔레그램 {tg}건 / 이메일 {'1통(통합)' if em else '0'}")
     return tg
 
 
