@@ -469,29 +469,32 @@ def save_state(snap, ever_seen, extra=None):
     os.replace(tmp, STATE_PATH)
 
 
+def _send_digest(kind, bodies):
+    """같은 카테고리(재고/쿠폰) 이벤트들을 1통 이메일로 통합 발송. 발송=1/미발송=0."""
+    if not bodies:
+        return 0
+    n = len(bodies)
+    subject = bodies[0].split("\n", 1)[0] if n == 1 else f"[더현대 RRL] {kind} 알림 {n}건"
+    combined = ("\n\n" + "-" * 30 + "\n\n").join(bodies)
+    if n > 1:
+        combined = f"이번 확인에서 {kind} {n}건의 변동이 있었습니다.\n\n" + combined
+    return 1 if send_email(subject, combined) else 0
+
+
 def _emit(events):
-    """알림 발송: 텔레그램은 이벤트별(제품 URL 유용), 이메일은 이번 사이클분을 1통으로 통합. 텔레그램 발송건수 반환."""
+    """알림 발송: 텔레그램은 이벤트별, 이메일은 카테고리별(재고/쿠폰) 각각 1통으로 통합. 텔레그램 발송건수 반환."""
     tg = 0
-    bodies = []
+    stock_bodies, coupon_bodies = [], []
     for ev in events:
         body = alert_text(ev)
         if send_telegram(body):
             tg += 1
-        bodies.append(body)
+        (coupon_bodies if ev["type"] in ("coupon_on", "coupon_off") else stock_bodies).append(body)
         log(f"  · {ev['type']} {ev['code']} 사이즈={ev.get('sizes')}")
         time.sleep(0.4)
-    em = 0
-    if bodies:
-        n = len(bodies)
-        subject = (bodies[0].split("\n", 1)[0] if n == 1
-                   else f"[더현대 RRL] 재고/쿠폰 알림 {n}건")
-        combined = ("\n\n" + "-" * 30 + "\n\n").join(bodies)
-        if n > 1:
-            combined = f"이번 확인에서 {n}건의 변동이 있었습니다.\n\n" + combined
-        if send_email(subject, combined):
-            em = 1
+    em = _send_digest("재고", stock_bodies) + _send_digest("쿠폰", coupon_bodies)
     if events:
-        log(f"  발송: 텔레그램 {tg}건 / 이메일 {'1통(통합)' if em else '0'}")
+        log(f"  발송: 텔레그램 {tg}건 / 이메일 {em}통(재고·쿠폰 분리)")
     return tg
 
 
